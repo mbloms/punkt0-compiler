@@ -1,10 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Lexer where
-import qualified Data.ByteString.Char8 as BS
+-- module Lexer where
+-- import qualified Data.ByteString.Char8 as BS
 import Control.Applicative
 import Control.Arrow (second)
 import Data.Char(isLower, isUpper, isDigit, isAlpha, isAlphaNum)
 import Data.Monoid
+import Data.List(find)
 
 newtype Edges token = Edges [(Char -> Bool, Lexer (Char -> token))]
 data State token = NonTerminal | Ignore | Terminal token
@@ -83,6 +84,7 @@ data Token = If
     | LeftParen
     | Identifier String
     | Number Integer
+    deriving(Show)
 
 leftParen :: Lexer Token
 leftParen = char '(' *> pure LeftParen
@@ -107,14 +109,20 @@ identifier = fmap Identifier $ fmap (:) letter <*> many alphanumeric
 
 type Position = Int
 data Lexeme a = Bad Position | Ok Position a
+    deriving(Show)
+
+getNextLexer :: Edges a -> Char -> Maybe (Lexer (Char -> a))
+getNextLexer (Edges edges) c = fmap snd (find (`fst` c) edges)
 
 scan :: Lexer a -> Position -> String -> (State a, String, Position)
-scan lexer initialPosition input = consume lexer initialPosition input (NonTerminal, input, initialPosition)
+scan lexer initialPosition initialInput = consume lexer initialPosition initialInput (NonTerminal, initialInput, initialPosition)
     where
         consume (Lexer state edges) pos input lastScan =
             case input of
                 [] -> currentScan state
-                (c:cs) -> undefined
+                (c:cs) -> case getNextLexer edges c of
+                    Nothing -> currentScan state
+                    Just next -> consume (next <*> pure c) (pos+1) cs (currentScan state)
             where
                 currentScan NonTerminal = lastScan
                 currentScan _ = (state, input, pos)
@@ -127,11 +135,13 @@ checkPrefix prefix pos lexemes = case prefix of
 runLexer :: Lexer a -> String -> [Lexeme a]
 runLexer lexer = tokenize (0, 0) ""
     where
-        tokenize :: (Position, Position) -> String -> String -> [Lexeme a]
+        -- tokenize :: (Position, Position) -> String -> String -> [Lexeme a]
         tokenize (pos, errPos) prefix input =
             case scan lexer pos input of
-                (NonTerminal, [], pos') -> checkPrefix prefix errPos []
+                (NonTerminal, [], _) -> checkPrefix prefix errPos []
                 (NonTerminal, c:input', pos') -> checkPrefix (c:prefix) errPos $ tokenize (pos', pos') "" input'
                 (Terminal token, input', pos') ->  checkPrefix prefix errPos $ Ok pos token : tokenize (pos', pos') "" input'
                 (Ignore, input', pos') -> tokenize (pos', pos') "" input'
 
+main :: IO ()
+main = print $ runLexer identifier "asd_111asd"

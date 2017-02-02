@@ -1,4 +1,5 @@
 Functors
+Lexer
 *.o
 *.hi
 .DS_Store
