@@ -29,12 +29,6 @@ instance Alternative State where
     result <|> NonTerminal    = result
     result <|> _       = result
 
-    -- Terminal a <|> _ = Terminal a
-    -- _ <|> Terminal a = Terminal a
-    -- Ignore <|> _ = Ignore
-    -- _ <|> Ignore = Ignore
-    -- _ <|> _ = NonTerminal
-
 instance Functor Edges where
     fmap f (Edges edges) = Edges $ map (second (fmap (f.))) edges
 
@@ -66,6 +60,9 @@ instance Alternative Lexer where
     Lexer state edges <|> Lexer state' edges' =
         Lexer (state <|> state') (edges <> edges')
 
+ignore :: Lexer a
+ignore = Lexer Ignore (Edges [])
+
 satisfy :: (Char -> Bool) -> Lexer Char
 satisfy predicate = Lexer NonTerminal (Edges [(predicate, pure id)])
 
@@ -78,6 +75,14 @@ string (c:cs) = fmap (:) (char c) <*> string cs
 
 pair :: Lexer a -> Lexer b -> Lexer (a,b)
 pair a b = fmap (,) a <*> b
+
+acomment :: Lexer b
+acomment = char '*' *> insidecomment
+    where
+        insidecomment = many (satisfy (/= '*')) *> char '*' *> (char '/' *> ignore <|> insidecomment)
+
+divisionorcomment :: Lexer Char
+divisionorcomment = char '/' *> (acomment <|> pure '/')
 
 pairWith :: (a -> b -> c) -> Lexer a -> Lexer b -> Lexer c
 pairWith f a b = fmap f a <*> b
@@ -122,14 +127,15 @@ scan :: Lexer a -> Position -> String -> (State a, String, Position)
 scan lexer initialPosition initialInput = consume lexer initialPosition initialInput (NonTerminal, initialInput, initialPosition)
     where
         consume (Lexer state edges) pos input lastScan =
-            case input of
-                [] -> currentScan state
+            let currentScan = nextScan state
+            in case input of
+                [] -> currentScan
                 (c:cs) -> case getNextLexer edges c of
-                    Nothing -> currentScan state
-                    Just next -> consume (next <*> pure c) (pos+1) cs (currentScan state)
+                    Nothing -> currentScan
+                    Just next -> consume (next <*> pure c) (pos+1) cs currentScan
             where
-                currentScan NonTerminal = lastScan
-                currentScan _ = (state, input, pos)
+                nextScan NonTerminal = lastScan
+                nextScan _ = (state, input, pos)
 
 checkPrefix :: String -> Position -> [Lexeme a] -> [Lexeme a]
 checkPrefix prefix pos lexemes = case prefix of
