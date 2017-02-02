@@ -25,11 +25,15 @@ instance Applicative State where
 instance Alternative State where
     empty = NonTerminal
 
-    Terminal a <|> _ = Terminal a
-    _ <|> Terminal a = Terminal a
-    Ignore <|> _ = Ignore
-    _ <|> Ignore = Ignore
-    _ <|> _ = NonTerminal
+    NonTerminal <|> result    = result
+    result <|> NonTerminal    = result
+    result <|> _       = result
+
+    -- Terminal a <|> _ = Terminal a
+    -- _ <|> Terminal a = Terminal a
+    -- Ignore <|> _ = Ignore
+    -- _ <|> Ignore = Ignore
+    -- _ <|> _ = NonTerminal
 
 instance Functor Edges where
     fmap f (Edges edges) = Edges $ map (second (fmap (f.))) edges
@@ -139,9 +143,9 @@ runLexer lexer = tokenize (0, 0) ""
         tokenize (pos, errPos) prefix input =
             case scan lexer pos input of
                 (NonTerminal, [], _) -> checkPrefix prefix errPos []
-                (NonTerminal, c:input', pos') -> checkPrefix (c:prefix) errPos $ tokenize (pos', pos') "" input'
+                (NonTerminal, c:input', pos') -> tokenize (pos'+1, errPos) (c:prefix) input'
                 (Terminal token, input', pos') ->  checkPrefix prefix errPos $ Ok pos token : tokenize (pos', pos') "" input'
-                (Ignore, input', pos') -> tokenize (pos', pos') "" input'
+                (Ignore, input', pos') -> checkPrefix prefix errPos $ tokenize (pos', pos') "" input'
 
 main :: IO ()
 main = print $ runLexer identifier "asd_111asd"
