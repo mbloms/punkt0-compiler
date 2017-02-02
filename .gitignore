@@ -1,0 +1,4 @@
+Functors
+*.o
+*.hi
+.DS_Store
