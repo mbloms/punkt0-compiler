@@ -1,4 +1,6 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Lexer where
+import qualified Data.ByteString.Char8 as BS
 import Control.Applicative
 import Control.Arrow (second)
 import Data.Char(isLower, isUpper, isDigit, isAlpha, isAlphaNum)
@@ -102,4 +104,34 @@ alphanumeric = satisfy isAlphaNum
 
 identifier :: Lexer Token
 identifier = fmap Identifier $ fmap (:) letter <*> many alphanumeric
+
+type Position = Int
+data Lexeme a = Bad Position | Ok Position a
+
+scan :: Lexer a -> Position -> String -> (State a, String, Position)
+scan lexer initialPosition input = consume lexer initialPosition input (NonTerminal, input, initialPosition)
+    where
+        consume (Lexer state edges) pos input lastScan =
+            case input of
+                [] -> currentScan state
+                (c:cs) -> undefined
+            where
+                currentScan NonTerminal = lastScan
+                currentScan _ = (state, input, pos)
+
+checkPrefix :: String -> Position -> [Lexeme a] -> [Lexeme a]
+checkPrefix prefix pos lexemes = case prefix of
+    "" -> lexemes
+    _ -> Bad pos : lexemes
+
+runLexer :: Lexer a -> String -> [Lexeme a]
+runLexer lexer = tokenize (0, 0) ""
+    where
+        tokenize :: (Position, Position) -> String -> String -> [Lexeme a]
+        tokenize (pos, errPos) prefix input =
+            case scan lexer pos input of
+                (NonTerminal, [], pos') -> checkPrefix prefix errPos []
+                (NonTerminal, c:input', pos') -> checkPrefix (c:prefix) errPos $ tokenize (pos', pos') "" input'
+                (Terminal token, input', pos') ->  checkPrefix prefix errPos $ Ok pos token : tokenize (pos', pos') "" input'
+                (Ignore, input', pos') -> tokenize (pos', pos') "" input'
 
