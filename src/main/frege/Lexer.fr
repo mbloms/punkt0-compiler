@@ -1,13 +1,12 @@
--- module Lexer where
--- import qualified Data.ByteString.Char8 as BS
-import Control.Applicative
-import Control.Arrow (second)
-import Data.Char(isLower, isUpper, isDigit, isAlpha, isAlphaNum)
+module Lexer where
 import Data.Monoid
+import Control.Second(second)
 import Data.List(find)
+import Data.Char(isAlpha,isAlphaNum,isUpper,isDigit,isLower)
 
-newtype Edges token = Edges [(Char -> Bool, Lexer (Char -> token))]
+data Edges token = Edges [(Char -> Bool, Lexer (Char -> token))]
 data State token = NonTerminal | Ignore | Terminal token
+derive Show (State token)
 data Lexer token = Lexer (State token) (Edges token)
 
 instance Functor State where
@@ -21,12 +20,13 @@ instance Applicative State where
     Terminal f <*> Terminal a = Terminal (f a)
     _ <*> _ = NonTerminal
 
-instance Alternative State where
-    empty = NonTerminal
-
+instance Alt State where
     NonTerminal <|> result    = result
     result <|> NonTerminal    = result
     result <|> _       = result
+
+instance Plus State where
+    pzero = NonTerminal
 
 instance Functor Edges where
     fmap f (Edges edges) = Edges $ map (second (fmap (f.))) edges
@@ -40,24 +40,40 @@ instance Functor Lexer where
     fmap f (Lexer state edges) = Lexer (fmap f state) (fmap f edges)
 
 applyToEdges :: Edges (a -> b) -> Lexer a -> Edges b
-applyToEdges (Edges edges) xs = Edges $ map (second (\next -> fmap flip next <*> xs)) edges
+applyToEdges (Edges edges) xs = Edges $ fmap (second (\next -> fmap flip next <*> xs)) edges
 
 instance Applicative Lexer where
     pure token = Lexer (pure token) (Edges [])
 
     Lexer NonTerminal edges <*> xs =
         Lexer NonTerminal (applyToEdges edges xs)
+
     Lexer Ignore edges <*> xs =
         Lexer Ignore (applyToEdges edges xs)
+
     --Map all functions from fs onto all values from xs
     Lexer (Terminal f) fedges <*> xs@(Lexer xstate xedges) =
         Lexer (pure f <*> xstate) (fmap f xedges <> applyToEdges fedges xs)
 
-instance Alternative Lexer where
-    empty = Lexer NonTerminal (Edges [])
-
+instance Alt Lexer where
     Lexer state edges <|> Lexer state' edges' =
         Lexer (state <|> state') (edges <> edges')
+
+instance Plus Lexer where
+    pzero = Lexer NonTerminal (Edges [])
+
+many :: (Applicative f, Plus f) => f a -> f [a]
+many !v = many_v
+    where
+        -- same definition as for some causes:
+        -- ClassCastException: BlackHole cannot be cast to Lexer$TLexer
+        many_v = (fmap (:) v <*> many_v) <|> pure []
+
+some :: (Applicative f, Plus f) => f a -> f [a]
+some !v = some_v
+    where
+        many_v = some_v <|> pure []
+        some_v = (fmap (:) v) <*> many_v
 
 ignore :: Lexer a
 ignore = Lexer Ignore (Edges [])
@@ -68,8 +84,8 @@ satisfy predicate = Lexer NonTerminal (Edges [(predicate, pure id)])
 char :: Char -> Lexer Char
 char c = satisfy (==c)
 
-string :: String -> Lexer String
-string "" = pure ""
+string :: [Char] -> Lexer [Char]
+string [] = pure []
 string (c:cs) = fmap (:) (char c) <*> string cs
 
 pair :: Lexer a -> Lexer b -> Lexer (a,b)
@@ -90,9 +106,10 @@ data Token = If
     | Else
     | While
     | LeftParen
-    | Identifier String
+    | Identifier [Char]
     | Number Integer
-    deriving(Show)
+
+derive Show Token
 
 leftParen :: Lexer Token
 leftParen = char '(' *> pure LeftParen
@@ -117,13 +134,13 @@ identifier = fmap Identifier $ fmap (:) letter <*> many alphanumeric
 
 type Position = Int
 data Lexeme a = Bad Position | Ok Position a
-    deriving(Show)
+derive Show (Lexeme a)
 
 getNextLexer :: Edges a -> Char -> Maybe (Lexer (Char -> a))
 getNextLexer (Edges edges) c = fmap snd (find (`fst` c) edges)
 
-scan :: Lexer a -> Position -> String -> (State a, String, Position)
-scan lexer initialPosition initialInput = consume lexer initialPosition initialInput (NonTerminal, initialInput, initialPosition)
+scan :: Lexer a -> Position -> [Char] -> (State a, [Char], Position)
+scan lexer startPos startInput = consume lexer startPos startInput (NonTerminal, startInput, startPos)
     where
         consume (Lexer state edges) pos input lastScan =
             let currentScan = nextScan state
@@ -136,21 +153,21 @@ scan lexer initialPosition initialInput = consume lexer initialPosition initialI
                 nextScan NonTerminal = lastScan
                 nextScan _ = (state, input, pos)
 
-checkPrefix :: String -> Position -> [Lexeme a] -> [Lexeme a]
+checkPrefix :: [Char] -> Position -> [Lexeme a] -> [Lexeme a]
 checkPrefix prefix pos lexemes = case prefix of
-    "" -> lexemes
+    [] -> lexemes
     _ -> Bad pos : lexemes
 
-runLexer :: Lexer a -> String -> [Lexeme a]
-runLexer lexer = tokenize (0, 0) ""
+initialPosition :: Position
+initialPosition = 0
+
+runLexer :: Lexer a -> [Char] -> [Lexeme a]
+runLexer lexer = tokenize (initialPosition, initialPosition) []
     where
         -- tokenize :: (Position, Position) -> String -> String -> [Lexeme a]
         tokenize (pos, errPos) prefix input =
             case scan lexer pos input of
                 (NonTerminal, [], _) -> checkPrefix prefix errPos []
                 (NonTerminal, c:input', pos') -> tokenize (pos'+1, errPos) (c:prefix) input'
-                (Terminal token, input', pos') ->  checkPrefix prefix errPos $ Ok pos token : tokenize (pos', pos') "" input'
-                (Ignore, input', pos') -> checkPrefix prefix errPos $ tokenize (pos', pos') "" input'
-
-main :: IO ()
-main = print $ runLexer identifier "asd_111asd"
+                (Terminal token, input', pos') ->  checkPrefix prefix errPos $ Ok pos token : tokenize (pos', pos') [] input'
+                (Ignore, input', pos') -> checkPrefix prefix errPos $ tokenize (pos', pos') [] input'
