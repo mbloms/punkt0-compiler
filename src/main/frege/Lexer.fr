@@ -1,11 +1,16 @@
-module Lexer where
+module lexer.Lexer where
 import Data.Monoid
 import Control.Second(second)
 import Data.List(find)
 import Data.Char(isAlpha,isAlphaNum,isUpper,isDigit,isLower)
 
+-- Nicer looking function composition operator :)
+infixr 3 ∘
+f ∘ g = \x -> f (g x)
+
 data Edges token = Edges [(Char -> Bool, Lexer (Char -> token))]
 data State token = NonTerminal | Ignore | Terminal token
+derive Eq (State token)
 derive Show (State token)
 data Lexer token = Lexer (State token) (Edges token)
 
@@ -29,7 +34,7 @@ instance Plus State where
     pzero = NonTerminal
 
 instance Functor Edges where
-    fmap f (Edges edges) = Edges $ map (second (fmap (f.))) edges
+    fmap f (Edges edges) = Edges $ map (second (fmap (f ∘))) edges
 
 instance Monoid (Edges a) where
     mempty = Edges []
