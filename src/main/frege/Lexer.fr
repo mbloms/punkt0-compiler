@@ -96,28 +96,8 @@ string (c:cs) = fmap (:) (char c) <*> string cs
 pair :: Lexer a -> Lexer b -> Lexer (a,b)
 pair a b = fmap (,) a <*> b
 
-acomment :: Lexer b
-acomment = char '*' *> insidecomment
-    where
-        insidecomment = many (satisfy (/= '*')) *> char '*' *> (char '/' *> ignore <|> insidecomment)
-
-divisionorcomment :: Lexer Char
-divisionorcomment = char '/' *> (acomment <|> pure '/')
-
 pairWith :: (a -> b -> c) -> Lexer a -> Lexer b -> Lexer c
 pairWith f a b = fmap f a <*> b
-
-data Token = If
-    | Else
-    | While
-    | LeftParen
-    | Identifier [Char]
-    | Number Integer
-
-derive Show Token
-
-leftParen :: Lexer Token
-leftParen = char '(' *> pure LeftParen
 
 digit :: Lexer Char
 digit = satisfy isDigit
@@ -134,11 +114,8 @@ letter = satisfy isAlpha
 alphanumeric :: Lexer Char
 alphanumeric = satisfy isAlphaNum
 
-identifier :: Lexer Token
-identifier = fmap Identifier $ fmap (:) letter <*> many alphanumeric
-
 type Position = Int
-data Lexeme a = Bad Position | Ok Position a
+data Lexeme a = Bad Position | Ok Position a | EOF
 derive Show (Lexeme a)
 
 getNextLexer :: Edges a -> Char -> Maybe (Lexer (Char -> a))
@@ -172,7 +149,7 @@ runLexer lexer = tokenize (initialPosition, initialPosition) []
         -- tokenize :: (Position, Position) -> String -> String -> [Lexeme a]
         tokenize (pos, errPos) prefix input =
             case scan lexer pos input of
-                (NonTerminal, [], _) -> checkPrefix prefix errPos []
+                (NonTerminal, [], _) -> checkPrefix prefix errPos [] ++ [EOF]
                 (NonTerminal, c:input', pos') -> tokenize (pos'+1, errPos) (c:prefix) input'
                 (Terminal token, input', pos') ->  checkPrefix prefix errPos $ Ok pos token : tokenize (pos', pos') [] input'
                 (Ignore, input', pos') -> checkPrefix prefix errPos $ tokenize (pos', pos') [] input'

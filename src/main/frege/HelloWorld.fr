@@ -1,6 +1,0 @@
-module Main where
-import lexer.Lexer (runLexer, identifier)
-
-main :: [String] -> IO ()
-main _ = println $ show $ runLexer identifier (toList "asdef_b141+_a11basdf")
-

@@ -1,0 +1,123 @@
+module Main where
+import lexer.Lexer
+import Data.HashMap
+
+data Type = UnitType
+    | BooleanType
+    | IntType
+    | StringType
+derive Show Type
+
+types :: [(String, Type)]
+types = [("String", StringType), ("Unit", UnitType), ("Int", IntType), ("Boolean", BooleanType)]
+
+data Literal = LitString String
+    | LitInt Int
+    | LitTrue
+    | LitFalse
+    | LitNull
+derive Show Literal
+
+atomicliterals :: [(String, Literal)]
+atomicliterals = [("true", LitTrue), ("false", LitFalse), ("null", LitNull)]
+
+between before after mid = before *> mid <* after
+
+-- match ", then match any char sequence (not '"'), then match " and return the char sequence
+stringliteral = between (char '"') (char '"') $ fmap (LitString . packed) (many (satisfy (/= '"'))
+intliteral = fmap (LitInt . read) $ some digit
+
+basicliteral :: Lexer Literal
+basicliteral = stringliteral <|> intliteral
+
+data Operator = Plus
+    | Minus
+    | Times
+    | Div
+    | And
+    | Or
+    | Equals
+    | Assign
+    | LT
+derive Show Operator
+
+acomment :: Lexer a
+acomment = char '*' *> insidecomment
+    where
+        insidecomment = many (satisfy (/= '*')) *> char '*' *> (char '/' *> ignore <|> insidecomment)
+
+operator :: Lexer Operator
+operator = (char '+' *> pure Plus)
+    <|> (char '-' *> pure Minus)
+    <|> (char '*' *> pure Times)
+    <|> (char '/' *> acomment <|> pure Div)
+    <|> (string "&&" *> pure And)
+    <|> (string "||" *> pure Or)
+    <|> (char '=' *> (char '=' *> pure Equals) <|> pure Assign)
+    <|> (char '<' *> pure LT)
+
+data Keyword = Class
+    | Extends
+    | Def
+    | Override
+    | This
+    | Object
+    | New
+    | If
+    | Else
+    | While
+    | Var
+    | Println
+derive Show Keyword
+
+keywords :: [(String, Keyword)]
+keywords = fromList [
+    ("class", Class)
+    , ("extends",Extends)
+    , Def
+    , Override
+    , This
+    , Object
+    , New
+    , If
+    , Else
+    , While
+    , Var
+    , Println
+
+data Token = Op Operator
+    | Type Type
+    | Keyword Keyword
+    | Literal Literal
+    | Identifier String
+    | LParen
+    | RParen
+    | LBrace
+    | RBrace
+derive Show Token
+
+mapsnd f = map (\(x, v) -> (x, f v))
+
+atomictokens :: HashMap String Token
+atomictokens = fromList (mapsnd Type types ++ mapsnd Keyword keywords ++ mapsnd Literal atomicliterals)
+
+checkstringtype :: String -> Token
+checkstringtype str = case lookup atomictokens str of
+    Nothing -> Identifier str
+    Just atomic -> atomic
+
+identifier :: Lexer Token
+identifier = fmap (checkstringtype . packed) $ fmap (:) letter <*> many alphanumeric
+
+token :: Lexer Token
+token = (char '(' *> pure LParen)
+    <|> (char ')' *> pure RParen)
+    <|> (char '{' *> pure LBrace)
+    <|> (char '}' *> pure RBrace)
+    <|> (fmap Op operator)
+    <|> (fmap Literal basicliteral)
+    <|> identifier
+
+main :: [String] -> IO ()
+main _ = println $ show $ runLexer identifier (toList "asdef_b141+_a11basdf")
+

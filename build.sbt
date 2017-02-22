@@ -4,10 +4,8 @@ version := "1.0"
 
 scalaVersion := "2.12.1"
 
-mainClass := Some("Main")
+mainClass in Compile := Some("Main")
+selectMainClass in Compile := (mainClass in Compile).value
 
 mainClass in Test := Some("test.frege.TestLexer")
-
-libraryDependencies += "org.typelevel" %% "cats" % "0.9.0"
-// libraryDependencies += "org.scalacheck" %% "scalacheck" % "1.13.4" % "test"
 
