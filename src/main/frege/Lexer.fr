@@ -2,7 +2,7 @@ module lexer.Lexer where
 import Data.Monoid
 import Control.Second(second)
 import Data.List(find)
-import Data.Char(isAlpha,isAlphaNum,isUpper,isDigit,isLower)
+import Data.Char(isAlpha,isAlphaNum,isUpper,isDigit,isLower,isSpace)
 
 -- Nicer looking function composition operator :)
 infixr 3 ∘
@@ -23,6 +23,8 @@ instance Applicative State where
     pure = Terminal
 
     Terminal f <*> Terminal a = Terminal (f a)
+    Ignore <*> _ = Ignore
+    _ <*> Ignore = Ignore
     _ <*> _ = NonTerminal
 
 instance Alt State where
@@ -80,7 +82,7 @@ some !v = some_v
         many_v = some_v <|> pure []
         some_v = (fmap (:) v) <*> many_v
 
-ignore :: Lexer a
+ignore :: Lexer b
 ignore = Lexer Ignore (Edges [])
 
 satisfy :: (Char -> Bool) -> Lexer Char
@@ -89,9 +91,12 @@ satisfy predicate = Lexer NonTerminal (Edges [(predicate, pure id)])
 char :: Char -> Lexer Char
 char c = satisfy (==c)
 
-string :: [Char] -> Lexer [Char]
-string [] = pure []
-string (c:cs) = fmap (:) (char c) <*> string cs
+string :: String -> Lexer [Char]
+string = string' . unpacked
+
+string' :: [Char] -> Lexer [Char]
+string' [] = pure []
+string' (c:cs) = fmap (:) (char c) <*> string' cs
 
 pair :: Lexer a -> Lexer b -> Lexer (a,b)
 pair a b = fmap (,) a <*> b
@@ -114,14 +119,21 @@ letter = satisfy isAlpha
 alphanumeric :: Lexer Char
 alphanumeric = satisfy isAlphaNum
 
-type Position = Int
-data Lexeme a = Bad Position | Ok Position a | EOF
+space :: Lexer Char
+space = satisfy isSpace
+
+type Position = (Int, Int)
+data Lexeme a = Bad Position | Ok Position a | EOF Position
 derive Show (Lexeme a)
 
 getNextLexer :: Edges a -> Char -> Maybe (Lexer (Char -> a))
 getNextLexer (Edges edges) c = fmap snd (find (`fst` c) edges)
 
-scan :: Lexer a -> Position -> [Char] -> (State a, [Char], Position)
+stepPosition :: Char -> Position -> Position
+stepPosition '\n' (line, _) = (line+1,1)
+stepPosition _ (line, col) = (line, col+1)
+
+scan :: (Show a) => Lexer a -> Position -> [Char] -> (State a, [Char], Position)
 scan lexer startPos startInput = consume lexer startPos startInput (NonTerminal, startInput, startPos)
     where
         consume (Lexer state edges) pos input lastScan =
@@ -130,7 +142,7 @@ scan lexer startPos startInput = consume lexer startPos startInput (NonTerminal,
                 [] -> currentScan
                 (c:cs) -> case getNextLexer edges c of
                     Nothing -> currentScan
-                    Just next -> consume (next <*> pure c) (pos+1) cs currentScan
+                    Just next -> consume (next <*> pure c) (stepPosition c pos) cs currentScan
             where
                 nextScan NonTerminal = lastScan
                 nextScan _ = (state, input, pos)
@@ -141,15 +153,15 @@ checkPrefix prefix pos lexemes = case prefix of
     _ -> Bad pos : lexemes
 
 initialPosition :: Position
-initialPosition = 0
+initialPosition = (1,1)
 
-runLexer :: Lexer a -> [Char] -> [Lexeme a]
+runLexer :: (Show a) => Lexer a -> [Char] -> [Lexeme a]
 runLexer lexer = tokenize (initialPosition, initialPosition) []
     where
-        -- tokenize :: (Position, Position) -> String -> String -> [Lexeme a]
         tokenize (pos, errPos) prefix input =
-            case scan lexer pos input of
-                (NonTerminal, [], _) -> checkPrefix prefix errPos [] ++ [EOF]
-                (NonTerminal, c:input', pos') -> tokenize (pos'+1, errPos) (c:prefix) input'
+            let scanned = scan lexer pos input
+            in case scanned of
+                (NonTerminal, [], pos') -> checkPrefix prefix errPos [EOF pos']
+                (NonTerminal, c:input', pos') -> tokenize (stepPosition c pos', errPos) (c:prefix) input'
                 (Terminal token, input', pos') ->  checkPrefix prefix errPos $ Ok pos token : tokenize (pos', pos') [] input'
                 (Ignore, input', pos') -> checkPrefix prefix errPos $ tokenize (pos', pos') [] input'

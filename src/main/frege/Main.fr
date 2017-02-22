@@ -24,8 +24,9 @@ atomicliterals = [("true", LitTrue), ("false", LitFalse), ("null", LitNull)]
 between before after mid = before *> mid <* after
 
 -- match ", then match any char sequence (not '"'), then match " and return the char sequence
-stringliteral = between (char '"') (char '"') $ fmap (LitString . packed) (many (satisfy (/= '"'))
-intliteral = fmap (LitInt . read) $ some digit
+stringliteral = between (char '"') (char '"') $ fmap (LitString . packed) (many (satisfy (/= '"')))
+
+intliteral = fmap (LitInt . atoi . packed) $ some digit
 
 basicliteral :: Lexer Literal
 basicliteral = stringliteral <|> intliteral
@@ -50,10 +51,10 @@ operator :: Lexer Operator
 operator = (char '+' *> pure Plus)
     <|> (char '-' *> pure Minus)
     <|> (char '*' *> pure Times)
-    <|> (char '/' *> acomment <|> pure Div)
+    <|> (char '/' *> (acomment <|> pure Div))
     <|> (string "&&" *> pure And)
     <|> (string "||" *> pure Or)
-    <|> (char '=' *> (char '=' *> pure Equals) <|> pure Assign)
+    <|> (char '=' *> (char '=' *> pure Equals <|> pure Assign))
     <|> (char '<' *> pure LT)
 
 data Keyword = Class
@@ -71,8 +72,7 @@ data Keyword = Class
 derive Show Keyword
 
 keywords :: [(String, Keyword)]
-keywords = fromList
-    [ ("class", Class)
+keywords = [ ("class", Class)
     , ("extends", Extends)
     , ("def", Def)
     , ("override", Override)
@@ -94,6 +94,7 @@ data Token = Op Operator
     | RParen
     | LBrace
     | RBrace
+    | WS
 derive Show Token
 
 mapsnd f = map (\(x, v) -> (x, f v))
@@ -102,16 +103,19 @@ atomictokens :: HashMap String Token
 atomictokens = fromList (mapsnd Type types ++ mapsnd Keyword keywords ++ mapsnd Literal atomicliterals)
 
 checkstringtype :: String -> Token
-checkstringtype str = case lookup atomictokens str of
+checkstringtype str = case lookup str atomictokens of
     Nothing -> Identifier str
     Just atomic -> atomic
 
 identifier :: Lexer Token
-identifier = fmap (checkstringtype . packed) $ fmap (:) letter <*> many alphanumeric
+identifier = fmap (checkstringtype . packed) $ fmap (:) (letter <|> char '_') <*> many (alphanumeric <|> char '_')
+
+whitespace = some space
 
 token :: Lexer Token
 token = (char '(' *> pure LParen)
     <|> (char ')' *> pure RParen)
+    <|> (whitespace *> ignore)
     <|> (char '{' *> pure LBrace)
     <|> (char '}' *> pure RBrace)
     <|> (fmap Op operator)
@@ -119,5 +123,5 @@ token = (char '(' *> pure LParen)
     <|> identifier
 
 main :: [String] -> IO ()
-main _ = println $ show $ runLexer identifier (toList "asdef_b141+_a11basdf")
+main _ = println $ show $ runLexer token (toList "asdef /*_b1*/41+_a11basdf")
 
