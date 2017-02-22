@@ -71,19 +71,19 @@ data Keyword = Class
 derive Show Keyword
 
 keywords :: [(String, Keyword)]
-keywords = fromList [
-    ("class", Class)
-    , ("extends",Extends)
-    , Def
-    , Override
-    , This
-    , Object
-    , New
-    , If
-    , Else
-    , While
-    , Var
-    , Println
+keywords = fromList
+    [ ("class", Class)
+    , ("extends", Extends)
+    , ("def", Def)
+    , ("override", Override)
+    , ("this", This)
+    , ("object", Object)
+    , ("new", New)
+    , ("if", If)
+    , ("else", Else)
+    , ("while", While)
+    , ("var", Var)
+    , ("println", Println)]
 
 data Token = Op Operator
     | Type Type
