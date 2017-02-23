@@ -1,4 +1,4 @@
-module parser.Parser where
+module Parser where
 
 data Parser token result = Parser { run :: [token] -> [([token], result)]}
 
