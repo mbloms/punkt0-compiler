@@ -1,0 +1,100 @@
+module parser.Punkt0Parser where
+import parser.Parser
+import lexer.Punkt0Lexer as Tokens(Token, getIdentifierString)
+
+{-
+program :: Parser Token Program
+program = do
+    classes <- many classdeclaration
+    main <- maindeclaration
+    return $ Program classes main
+-}
+
+data Identifier
+    = ID String
+derive Show Identifier
+
+identifier :: Parser Token Identifier
+identifier =
+    fmap (ID . unJust . getIdentifierString) $
+        satisfy (isJust . getIdentifierString)
+
+data BinOp
+    = And
+    | Or
+    | Equals
+    | LessThan
+    | Plus
+    | Minus
+    | Times
+    | Div
+derive Show BinOp
+
+data Expression
+    = BinOp {lhs :: Expression, op :: BinOp, rhs :: Expression}
+    -- | MethodCall {obj :: Expression, method :: Identifier, args :: [Expression]}
+    | LitInt Int
+    | LitString String
+    | LitTrue
+    | LitFalse
+    | Identifier {id :: Identifier}
+    | This
+    | LitNull
+    | New {obj ::Identifier}
+    | Not {expr :: Expression}
+    -- | Parens {body :: Expression}
+    -- | Block {body :: [Expression]}
+    | If { predicate :: Expression
+         , body :: Expression
+         , elseBody :: (Maybe Expression)
+         }
+    | While {predicate :: Expression, body :: Expression}
+    | Println {expr :: Expression}
+    | Assign {var :: Identifier, expr :: Expression}
+derive Show Expression
+
+
+binOp :: Parser Token Expression -> Parser Token BinOp -> Parser Token Expression
+binOp stronger op
+    = do {
+        e <- stronger;
+        operator <- op;
+        e2 <- stronger;
+        return $ BinOp e operator e2}
+    <|> stronger
+
+tokenOp t = symbol (Tokens.Op t)
+tokenLit t = symbol (Tokens.Literal t)
+tokenKey t = symbol (Tokens.Keyword t)
+
+expression = logical
+
+logical :: Parser Token Expression
+logical = binOp comparative op
+    where
+        op = (tokenOp Tokens.And *> pure And)
+            <|> (tokenOp Tokens.Or *> pure Or)
+
+comparative :: Parser Token Expression
+comparative = binOp additive op
+    where
+        op = (tokenOp Tokens.Equals *> pure Equals)
+            <|> (tokenOp Tokens.LT *> pure LessThan)
+
+additive :: Parser Token Expression
+additive = binOp multiplicative op
+    where
+        op = (tokenOp Tokens.Plus *> pure Plus)
+            <|> (tokenOp Tokens.Minus *> pure Minus)
+
+multiplicative = binOp simpleexpression op
+    where
+        op = (tokenOp Tokens.Times *> pure Times)
+            <|> (tokenOp Tokens.Div *> pure Div)
+
+simpleexpression = (symbol Tokens.LParen *> expression <* symbol Tokens.RParen)
+    <|> (tokenLit Tokens.LitTrue *> pure LitTrue)
+    <|> (tokenLit Tokens.LitFalse *> pure LitFalse)
+    <|> (tokenKey Tokens.This *> pure This)
+    <|> fmap Identifier identifier
+

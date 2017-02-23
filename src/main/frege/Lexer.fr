@@ -79,8 +79,9 @@ many !v = many_v
 some :: (Applicative f, Plus f) => f a -> f [a]
 some !v = some_v
     where
-        many_v = some_v <|> pure []
+        many_v = (fmap (:) v <*> many_v) <|> pure []
         some_v = (fmap (:) v) <*> many_v
+
 
 ignore :: Lexer b
 ignore = Lexer Ignore (Edges [])
@@ -120,7 +121,7 @@ alphanumeric :: Lexer Char
 alphanumeric = satisfy isAlphaNum
 
 space :: Lexer Char
-space = satisfy isSpace
+space = char ' ' <|> char '\n'
 
 type Position = (Int, Int)
 data Lexeme a = Bad Position | Ok Position a | EOF Position
@@ -158,10 +159,24 @@ initialPosition = (1,1)
 runLexer :: (Show a) => Lexer a -> [Char] -> [Lexeme a]
 runLexer lexer = tokenize (initialPosition, initialPosition) []
     where
-        tokenize (pos, errPos) prefix input =
-            let scanned = scan lexer pos input
-            in case scanned of
-                (NonTerminal, [], pos') -> checkPrefix prefix errPos [EOF pos']
-                (NonTerminal, c:input', pos') -> tokenize (stepPosition c pos', errPos) (c:prefix) input'
-                (Terminal token, input', pos') ->  checkPrefix prefix errPos $ Ok pos token : tokenize (pos', pos') [] input'
-                (Ignore, input', pos') -> checkPrefix prefix errPos $ tokenize (pos', pos') [] input'
+        tokenize (pos, errPos) prefix input
+            | traceLn (show input) = undefined
+            | otherwise =
+                let scanned = scan lexer pos input
+                in if (traceLn (show scanned)) then undefined
+                else case scanned of
+                    (NonTerminal, [], pos') -> checkPrefix prefix errPos [EOF pos']
+                    (NonTerminal, c:input', pos') -> tokenize (stepPosition c pos', errPos) (c:prefix) input'
+                    (Terminal token, input', pos') ->  checkPrefix prefix errPos $ Ok pos token : tokenize (pos', pos') [] input'
+                    (Ignore, input', pos') -> checkPrefix prefix errPos $ tokenize (pos', pos') [] input'
+
+isOk lexeme = case lexeme of
+    Ok _ _ -> true
+    _ -> false
+
+ofOk (Ok _ x) = x
+ofOk (Bad _) = error "Did not get a valid token"
+ofOk (EOF _) = error "Did not get a valid token"
+
+toValidTokens :: [Lexeme a] -> [a]
+toValidTokens = map ofOk . filter (isOk)

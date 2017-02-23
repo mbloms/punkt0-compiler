@@ -1,4 +1,4 @@
-module Parser where
+module parser.Parser where
 
 data Parser token result = Parser { run :: [token] -> [([token], result)]}
 
@@ -6,7 +6,7 @@ instance Functor (Parser token) where
     fmap f p = Parser (fmap (fmap f) • p.run)
 
 instance Applicative (Parser token) where
-    fparser <*> xparser = Parser $ \(tokens) ->
+    fparser <*> xparser = Parser $ \tokens ->
         [(tokens'', f x) |
             (tokens', f) <- fparser.run tokens,
             (tokens'', x) <- xparser.run tokens']
@@ -19,6 +19,15 @@ instance Monad (Parser token) where
             (tokens', a) <- aparser.run tokens,
             (tokens'', b) <- (f a).run tokens']
 
+instance Alt (Parser token) where
+    p <|> q = Parser $ \tokens ->
+        case p.run tokens of
+            [] -> q.run tokens
+            result -> result
+
+instance Plus (Parser token) where
+    pzero = Parser (\tokens -> [])
+
 satisfy :: (token -> Bool) -> Parser token token
 satisfy predicate = Parser $ \tokens ->
     case tokens of
@@ -30,3 +39,11 @@ satisfy predicate = Parser $ \tokens ->
 item :: Parser token token
 item = satisfy (const true)
 
+symbol :: Eq token => token -> Parser token token
+symbol t = satisfy (== t)
+
+{-
+seq :: Parser token [token]
+seq [] = pure []
+seq (t:rest) = fmap (:) (symbol t) <*> (seq rest)
+-}
