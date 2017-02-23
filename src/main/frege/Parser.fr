@@ -1,4 +1,4 @@
-module Parser where
+module parser.Parser where
 
 data Parser token result = Parser { run :: [token] -> [([token], result)]}
 
@@ -42,8 +42,3 @@ item = satisfy (const true)
 symbol :: Eq token => token -> Parser token token
 symbol t = satisfy (== t)
 
-{-
-seq :: Parser token [token]
-seq [] = pure []
-seq (t:rest) = fmap (:) (symbol t) <*> (seq rest)
--}
