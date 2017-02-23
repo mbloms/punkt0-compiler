@@ -159,15 +159,20 @@ initialPosition = (1,1)
 runLexer :: (Show a) => Lexer a -> [Char] -> [Lexeme a]
 runLexer lexer = tokenize (initialPosition, initialPosition) []
     where
+        -- tokenize :: (Position, Position) -> String -> String -> [Lexeme a]
         tokenize (pos, errPos) prefix input
             | traceLn (show input) = undefined
             | otherwise =
                 let scanned = scan lexer pos input
                 in if (traceLn (show scanned)) then undefined
                 else case scanned of
+                    --EOF
                     (NonTerminal, [], pos') -> checkPrefix prefix errPos [EOF pos']
+                    --För att fortsätta när man hittar en BAD:
                     (NonTerminal, c:input', pos') -> tokenize (stepPosition c pos', errPos) (c:prefix) input'
+                    --Hittat en token. Kolla prefix och lexa resten.
                     (Terminal token, input', pos') ->  checkPrefix prefix errPos $ Ok pos token : tokenize (pos', pos') [] input'
+                    --Hittat en ignore. Kolla prexif och lexa resten.
                     (Ignore, input', pos') -> checkPrefix prefix errPos $ tokenize (pos', pos') [] input'
 
 isOk lexeme = case lexeme of
