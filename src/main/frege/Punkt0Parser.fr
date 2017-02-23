@@ -2,13 +2,38 @@ module parser.Punkt0Parser where
 import parser.Parser
 import lexer.Punkt0Lexer as Tokens(Token, getIdentifierString)
 
-{-
-program :: Parser Token Program
-program = do
-    classes <- many classdeclaration
-    main <- maindeclaration
-    return $ Program classes main
--}
+
+data Program = Program [ClassDeclaration] MainDeclaration
+
+data ClassDeclaration = Class 
+    { name :: Identifier
+    , extends :: (Maybe Identifier)
+    , vars :: [VarDeclaration]
+    , methods :: [MethodDeclaration]
+    }
+
+data MainDeclaration = Main 
+    { name :: Identifier
+    , methodName :: Identifier
+    , body :: [Expression]
+    }
+
+data VarDeclaration = Var {var :: Identifier, varType :: Type, expr :: Expression}
+
+data MethodDeclaration = MethodDeclaration 
+    { override :: Bool
+    , name :: Identifier
+    , args :: [(Identifier, Type)]
+    , vars :: [VarDeclaration]
+    , exprs :: [Expression]
+    }
+
+data Type 
+    = Bool
+    | Int
+    | String
+    | Unit
+    | User {typeName :: Identifier}
 
 data Identifier
     = ID String
