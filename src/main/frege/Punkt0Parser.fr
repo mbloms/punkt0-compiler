@@ -244,7 +244,7 @@ simpleexpression =
             tokenKey Tokens.If
             predicate <- parens expression
             body <- expression
-            elseBody <- optional expression
+            elseBody <- optional (tokenKey Tokens.Else *> expression)
             return $ If predicate body elseBody
         whileLoop = do
             tokenKey Tokens.While
