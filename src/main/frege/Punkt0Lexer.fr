@@ -17,11 +17,12 @@ data Literal = LitString String
     | LitTrue
     | LitFalse
     | LitNull
+    | LitThis
 derive Show Literal
 derive Eq Literal
 
 atomicliterals :: [(String, Literal)]
-atomicliterals = [("true", LitTrue), ("false", LitFalse), ("null", LitNull)]
+atomicliterals = [("true", LitTrue), ("false", LitFalse), ("null", LitNull), ("this", LitThis)]
 
 between before after mid = before *> mid <* after
 
@@ -64,7 +65,6 @@ data Keyword = Class
     | Extends
     | Def
     | Override
-    | This
     | Object
     | New
     | If
@@ -80,7 +80,6 @@ keywords = [ ("class", Class)
     , ("extends", Extends)
     , ("def", Def)
     , ("override", Override)
-    , ("this", This)
     , ("object", Object)
     , ("new", New)
     , ("if", If)
@@ -89,7 +88,8 @@ keywords = [ ("class", Class)
     , ("var", Var)
     , ("println", Println)]
 
-data Token = Op Operator
+data Token
+    = Op Operator
     | Type Type
     | Keyword Keyword
     | Literal Literal
@@ -98,7 +98,11 @@ data Token = Op Operator
     | RParen
     | LBrace
     | RBrace
-    | WS
+    | Comma
+    | Colon
+    | SemiColon
+    | Dot
+    | Bang
 derive Show Token
 derive Eq Token
 
@@ -121,12 +125,24 @@ getIdentifierString :: Token -> Maybe String
 getIdentifierString (Identifier s) = Just s
 getIdentifierString _ = Nothing
 
+isLiteral :: Token -> Bool
+isLiteral (Literal _) = true
+isLiteral _ = false
+
+getLiteral :: Token -> Literal
+getLiteral (Literal l) = l
+
 token :: Lexer Token
 token = (char '(' *> pure LParen)
     <|> (char ')' *> pure RParen)
     <|> (whitespace *> ignore)
     <|> (char '{' *> pure LBrace)
     <|> (char '}' *> pure RBrace)
+    <|> (char ':' *> pure Colon)
+    <|> (char ';' *> pure SemiColon)
+    <|> (char ',' *> pure Comma)
+    <|> (char '.' *> pure Dot)
+    <|> (char '!' *> pure Bang)
     <|> (fmap Op operator)
     <|> (fmap Literal basicliteral)
     <|> identifier

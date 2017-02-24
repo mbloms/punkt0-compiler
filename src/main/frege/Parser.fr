@@ -36,9 +36,25 @@ satisfy predicate = Parser $ \tokens ->
             then [(rest,t)]
             else []
 
+many :: (Applicative f, Alt f) => f a -> f [a]
+many !v = many_v
+    where
+        -- same definition as for some causes:
+        -- ClassCastException: BlackHole cannot be cast to Lexer$TLexer
+        many_v = (fmap (:) v <*> many_v) <|> pure []
+
+some :: (Applicative f, Alt f) => f a -> f [a]
+some !v = some_v
+    where
+        many_v = (fmap (:) v <*> many_v) <|> pure []
+        some_v = (fmap (:) v) <*> many_v
+
 item :: Parser token token
 item = satisfy (const true)
 
 symbol :: Eq token => token -> Parser token token
 symbol t = satisfy (== t)
+
+optional :: Parser token a -> Parser token (Maybe a)
+optional parser = fmap Just parser <|> pure Nothing
 
