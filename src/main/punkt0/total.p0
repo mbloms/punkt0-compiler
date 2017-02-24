@@ -1,8 +1,11 @@
+class Defs {
+	var x : Int = a;
+	override def lang(y:Java, h : Haskell):String =
+		{ y.killWithFire()
+		; h.show()
+		}
 
-class Nothing extends Any {
-	
 }
-
 
 object Main {
 	def bajs():Unit = {

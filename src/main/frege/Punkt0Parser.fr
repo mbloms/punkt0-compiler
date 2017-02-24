@@ -77,6 +77,7 @@ varDeclaration = do
     t <- typeParser
     tokenOp Tokens.Assign
     expr <- expression
+    symbol Tokens.SemiColon
     return $ Var name t expr
 
 data MethodDeclaration = MethodDeclaration
@@ -88,7 +89,9 @@ data MethodDeclaration = MethodDeclaration
     , exprs :: [Expression]
     }
 
-list :: Parser Token a -> Parser Token b -> Parser Token [a]
+list1 :: Parser Token a -> Parser Token b -> Parser Token [a]
+list1 elem separator = (fmap (:) elem <*> many (separator *> elem)) 
+
 list elem separator = (fmap (:) elem <*> many (separator *> elem)) <|> pure []
 
 methodDeclaration :: Parser Token MethodDeclaration
@@ -96,13 +99,13 @@ methodDeclaration = do
         override <- (fmap isJust . optional . tokenKey) Tokens.Override
         tokenKey Tokens.Def
         name <- identifier
-        symbol Tokens.LParen
-        args <- parseArgs
-        returnType <- typeParser
-        symbol Tokens.LBrace
-        vars <- many varDeclaration
-        exprs <- list expression (symbol Tokens.SemiColon)
-        symbol Tokens.RBrace
+        (args,returnType) <- parens 
+            $ fmap (,) parseArgs 
+            <*> (symbol Tokens.Colon *> typeParser)
+        tokenOp Tokens.Assign
+        (vars,exprs) <- braces
+            $ fmap (,) (many varDeclaration)
+            <*> (list1 expression (symbol Tokens.SemiColon))
         return $ MethodDeclaration override name args returnType vars exprs
     where
         parseArg = do
