@@ -1,0 +1,12 @@
+
+class Nothing extends Any {
+	
+}
+
+
+
+object Main extends Nothing {
+	def bajs():Unit = {
+		println("Java suger.")
+	}
+}
