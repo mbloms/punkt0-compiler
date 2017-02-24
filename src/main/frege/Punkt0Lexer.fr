@@ -49,7 +49,7 @@ derive Eq Operator
 acomment :: Lexer a
 acomment = char '*' *> insidecomment
     where
-        insidecomment = many (satisfy (/= '*')) *> char '*' *> (char '/' *> ignore <|> insidecomment)
+        insidecomment = many (satisfy (/= '*')) *> char '*' *> ((char '/' *> ignore) <|> insidecomment)
 
 operator :: Lexer Operator
 operator = (char '+' *> pure Plus)
