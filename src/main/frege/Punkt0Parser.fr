@@ -90,7 +90,7 @@ data MethodDeclaration = MethodDeclaration
     }
 
 list1 :: Parser Token a -> Parser Token b -> Parser Token [a]
-list1 elem separator = (fmap (:) elem <*> many (separator *> elem)) 
+list1 elem separator = (fmap (:) elem <*> many (separator *> elem))
 
 list elem separator = (fmap (:) elem <*> many (separator *> elem)) <|> pure []
 
@@ -99,9 +99,8 @@ methodDeclaration = do
         override <- (fmap isJust . optional . tokenKey) Tokens.Override
         tokenKey Tokens.Def
         name <- identifier
-        (args,returnType) <- parens 
-            $ fmap (,) parseArgs 
-            <*> (symbol Tokens.Colon *> typeParser)
+        args <- parens parseArgs
+        returnType <- symbol Tokens.Colon *> typeParser
         tokenOp Tokens.Assign
         (vars,exprs) <- braces
             $ fmap (,) (many varDeclaration)
