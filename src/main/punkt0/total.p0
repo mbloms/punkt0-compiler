@@ -4,8 +4,16 @@ class Defs {
 		{ y.killWithFire()
 		; h.show()
 		}
+	def metod() : Int = {
+		println("hej");
+		7
+	}
 
 }
+/*
+class Tom {
+
+	}*/
 
 object Main {
 	def bajs():Unit = {
