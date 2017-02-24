@@ -25,6 +25,12 @@ data ClassDeclaration = Class
     , vars :: [VarDeclaration]
     , methods :: [MethodDeclaration]
     }
+derive Show Program
+derive Show ClassDeclaration
+derive Show MainDeclaration
+derive Show VarDeclaration
+derive Show MethodDeclaration
+derive Show Type
 
 wrapping start mid after = start *> mid <* after
 braces mid = wrapping (symbol Tokens.LBrace) mid (symbol Tokens.RBrace)

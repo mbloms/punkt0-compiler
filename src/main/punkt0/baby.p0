@@ -4,8 +4,7 @@ class Nothing extends Any {
 }
 
 
-
-object Main extends Nothing {
+object Main {
 	def bajs():Unit = {
 		println("Java suger.")
 	}

@@ -121,7 +121,7 @@ alphanumeric :: Lexer Char
 alphanumeric = satisfy isAlphaNum
 
 space :: Lexer Char
-space = char ' ' <|> char '\n'
+space = satisfy isSpace
 
 type Position = (Int, Int)
 data Lexeme a = Bad Position | Ok Position a | EOF Position

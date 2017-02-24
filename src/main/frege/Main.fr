@@ -8,7 +8,7 @@ main _
     = getContents >>= \str ->
         let
             tokens = ((runLexer token) . toList) str
-            parseTree = (expression.run . toValidTokens) tokens
+            parseTree = (program.run . toValidTokens) tokens
         in (println . show) tokens
             >> (println . show) parseTree
 
