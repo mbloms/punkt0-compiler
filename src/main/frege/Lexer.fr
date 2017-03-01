@@ -8,36 +8,32 @@ import Data.Char(isAlpha,isAlphaNum,isUpper,isDigit,isLower,isSpace)
 infixr 6 ∘
 f ∘ g = \x -> f (g x)
 
-data ParseState
-    = ParseState
-    { input :: String
-    , pos :: Position
-    , errorPos :: Position
-    }
-
-data ParseResult s r
-    = Symbol (s -> ParseResult s r)
+data LexResult s r
+    = Symbol (s -> LexResult s r)
     | Fail
-    | Accept r (ParseResult s r)
+    | Accept r (LexResult s r)
 
-instance Functor (ParseResult s) where
+instance Show (Show r) => (LexResult s r) where
+    show (Symbol f) = "Symbol"
+    show Fail = "Fail"
+    show (Accept r next) = "Accept(" ++ (show r) ++ "," ++ (show next) ++ ")"
+
+instance Functor (LexResult s) where
     fmap _ Fail = Fail
     fmap f (Accept x result) = Accept (f x) (fmap f result)
     fmap f (Symbol g) = Symbol (fmap f . g)
 
-instance Alt (ParseResult s) where
+instance Alt (LexResult s) where
     Symbol f <|> Symbol g = Symbol (\x -> f x <|> g x)
     Fail <|> lexer = lexer
     lexer <|> Fail = lexer
     Accept x lexer <|> lexer' = Accept x (lexer <|> lexer')
     lexer <|> Accept x lexer' = Accept x (lexer <|> lexer')
 
-data Lexer s r = Lexer { run :: forall a. (r -> ParseResult s a) -> ParseResult s a}
+data Lexer s r = Lexer { run :: forall a. (r -> LexResult s a) -> LexResult s a}
 
-runLexer :: Lexer s r -> (r -> ParseResult s a) -> ParseResult s a
+runLexer :: Lexer s r -> (r -> LexResult s a) -> LexResult s a
 runLexer lexer = lexer.run
-
-
 
 instance Functor (Lexer s) where
     fmap f parser = parser >>= (\r -> pure (f r))
@@ -47,7 +43,7 @@ instance Applicative (Lexer s) where
     (<*>) = ap
 
 instance Alt (Lexer s) where
-    a <|> b = Lexer (\next -> runLexer a next <|> runLexer b next)
+    a <|> b = Lexer (\next -> a.run next <|> b.run next)
 
 instance Plus (Lexer s) where
     pzero = Lexer (\next -> Fail)
@@ -55,7 +51,7 @@ instance Plus (Lexer s) where
 instance Monad (Lexer s) where
     return x = Lexer (\next -> next x)
 
-    lexer >>= f = Lexer (\next -> runLexer lexer (\x -> runLexer (f x) next))
+    lexer >>= f = Lexer (\next -> lexer.run (\x -> (f x).run next))
 
 many :: (Applicative f, Plus f) => f a -> f [a]
 many !v = many_v
@@ -125,18 +121,31 @@ derive Show (ScanResult a)
 data Lexeme a = Bad Position | Ok Position a | EOF Position
 derive Show (Lexeme a)
 
-scan lexer startPos startInput = consume lexer startPos startInput (None, startInput, startPos)
-    where
-        consume lexer pos input lastScan =
-            case input of
-                [] -> lastScan
+scan lexer startPos startInput
+    | otherwise = consume lexer startPos startInput (None, startInput, startPos)
+      where
+        consume lexer pos input lastScan
+         | otherwise =
+            let currentScan = case lexer of
+                    Accept x _ -> (T x, input, pos)
+                    _ -> lastScan
+            in case input of
+                [] -> currentScan
                 (c:cs) -> case lexer of
-                    Fail -> lastScan
-                    Symbol f -> consume (f c) (stepPosition c pos) cs lastScan
-                    Accept x next -> consume next (stepPosition c pos) input (T x, input, pos)
+                    Fail -> currentScan
+                    Symbol f -> consume (f c) (stepPosition c pos) cs currentScan
+                    Accept x next -> consume next (stepPosition c pos) input currentScan
+
+scanToken'' Fail _ = []
+scanToken'' (Symbol f) (c:cs) = scanToken'' (f c) cs
+scanToken'' (Accept x next) cs = (x,cs) : scanToken'' next cs
+
+scanOneToken :: Lexer c a -> [c] -> [(a, [c])]
+scanOneToken lexer = scanToken'' (lexer.run (\x -> Accept x Fail))
 
 scanToken' r pos cs = scan r pos cs
 
+scanToken :: Show a => Lexer Char a -> Position -> [Char] -> (ScanResult a, [Char], Position)
 scanToken lexer = scanToken' (runLexer lexer (\x -> Accept x Fail))
 
 checkPrefix :: [Char] -> Position -> [Lexeme a] -> [Lexeme a]
