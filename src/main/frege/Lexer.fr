@@ -5,75 +5,114 @@ import Data.List(find)
 import Data.Char(isAlpha,isAlphaNum,isUpper,isDigit,isLower,isSpace)
 
 -- Nicer looking function composition operator :)
-infixr 3 ∘
+infixr 6 ∘
 f ∘ g = \x -> f (g x)
+{-
+instance Functor Result where
+    fmap _ Bad = Bad
+    fmap f (Accept t) = Accept (f t)
 
-data Edges token = Edges [(Char -> Bool, Lexer (Char -> token))]
-data State token = NonTerminal | Ignore | Terminal token
-derive Eq (State token)
-derive Show (State token)
-data Lexer token = Lexer (State token) (Edges token)
+instance Applicative Result where
+    pure = Accept
 
-instance Functor State where
-    fmap _ NonTerminal = NonTerminal
-    fmap _ Ignore = Ignore
-    fmap f (Terminal token) = Terminal (f token)
+    Fail <*> _ = Fail
+    _ <*> Fail = Fail
+    Accept f <*> Accept x = Accept (f x)
 
-instance Applicative State where
-    pure = Terminal
+instance Alt Result where
+    Fail <|> parser = parser
+    parser <|> Fail = parser
 
-    Terminal f <*> Terminal a = Terminal (f a)
-    Ignore <*> _ = Ignore
-    _ <*> Ignore = Ignore
-    _ <*> _ = NonTerminal
+instance Monoid Monoid m => Result m where
+    mempty = Accept mempty
 
-instance Alt State where
-    NonTerminal <|> result    = result
-    result <|> NonTerminal    = result
-    result <|> _       = result
+    Accept as `mappend` Accept bs = Accept $ as <> bs
+    Accept _ `mappend` err = err
+    err `mappend` _ = err
+-}
 
-instance Plus State where
-    pzero = NonTerminal
+data ParseState
+    = ParseState
+    { input :: String
+    , pos :: !Position
+    , errorPos :: !Position
+    }
 
-instance Functor Edges where
-    fmap f (Edges edges) = Edges $ map (second (fmap (f ∘))) edges
+data LexResult a = Ok a ParseState | Bad ParseState
 
-instance Monoid (Edges a) where
-    mempty = Edges []
-
-    (Edges as) `mappend` (Edges bs) = Edges (as <> bs)
+data Lexer a = Lexer { run :: ParseState -> LexResult a}
 
 instance Functor Lexer where
-    fmap f (Lexer state edges) = Lexer (fmap f state) (fmap f edges)
-
-applyToEdges :: Edges (a -> b) -> Lexer a -> Edges b
-applyToEdges (Edges edges) xs = Edges $ fmap (second (\next -> fmap flip next <*> xs)) edges
+    fmap f lexer = Lexer $ \state ->
+        case lexer.run state of
+            Bad state' -> Bad state'
+            Ok token state' -> Ok (f token) state'
 
 instance Applicative Lexer where
-    pure token = Lexer (pure token) (Edges [])
+    pure x = Lexer (\state -> Ok x state)
 
-    Lexer NonTerminal edges <*> xs =
-        Lexer NonTerminal (applyToEdges edges xs)
+    fs <*> xs = Lexer $ \state ->
+        case fs.run state of
+            Bad state' -> Bad state'
+            Ok f state' ->
+                case xs.run state' of
+                    Bad state'' -> Bad state''
+                    Ok x state'' -> Ok (f x) state''
 
-    Lexer Ignore edges <*> xs =
-        Lexer Ignore (applyToEdges edges xs)
+instance Monad Lexer where
+    pure x = Lexer (\state -> Ok x state)
 
-    --Map all functions from fs onto all values from xs
-    Lexer (Terminal f) fedges <*> xs@(Lexer xstate xedges) =
-        Lexer (pure f <*> xstate) (fmap f xedges <> applyToEdges fedges xs)
+    xs >>= f = Lexer $ \state ->
+        case xs.run state of
+            Bad state' -> Bad state'
+            Ok x state' -> (f x).run state'
 
-instance Alt Lexer where
-    Lexer state edges <|> Lexer state' edges' =
-        Lexer (state <|> state') (edges <> edges')
+{-
+instance Functor (TokenParser symbol) where
+    fmap f parser = pure f <*> parser
 
-instance Plus Lexer where
-    pzero = Lexer NonTerminal (Edges [])
+instance Applicative (TokenParser symbol) where
+    pure = return
+    (<*>) = ap
 
+instance Monad (TokenParser symbol) where
+    return x = TokenParser $ (\_ -> Ok x)
+
+    parser >>= f = TokenParser $ \state ->
+        case parser.run state of
+            Failing pos -> Failing pos
+            Ok token -> (f token).run state
+
+type Next symbol token a = ParseState symbol -> token -> Result a
+data Lexer symbol token
+    = Lexer { run :: forall a. Next symbol token a -> TokenParser symbol a}
+
+instance Functor (Lexer symbol) where
+    fmap f lexer = lexer >>= \token ->
+        pure (f token)
+
+instance Applicative (Lexer symbol) where
+    pure x = Lexer (\next -> next x)
+
+    fs <*> xs =
+        fs >>= \f ->
+        xs >>= \x ->
+        return $ f x
+
+instance Monad (Lexer symbol) where
+    pure x = Lexer (\next -> next x)
+
+    lexer >>= f = Lexer (\next -> lexer.run (\x -> (f x).run next))
+
+instance Alt (Lexer symbol) where
+    lexer <|> lexer' = Lexer (\next -> (lexer.run next <|> lexer'.run next))
+
+instance Plus (Lexer symbol) where
+    pzero = Lexer (\next -> TokenParser (\state -> Failing state.errorPos))
+-}
 many :: (Applicative f, Plus f) => f a -> f [a]
 many !v = many_v
     where
-        -- same definition as for some causes:
-        -- ClassCastException: BlackHole cannot be cast to Lexer$TLexer
         many_v = (fmap (:) v <*> many_v) <|> pure []
 
 some :: (Applicative f, Plus f) => f a -> f [a]
@@ -82,57 +121,79 @@ some !v = some_v
         many_v = (fmap (:) v <*> many_v) <|> pure []
         some_v = (fmap (:) v) <*> many_v
 
+item :: Lexer c c
+item = Lexer $ \next ->
+    TokenParser $ \state ->
+    case state.input of
+        [] -> Failing state.errorPos
+        (c:cs) -> (next c).run $ state.{
+            input = cs
+            , pos = stepPosition c state.pos
+            , errorPos = state.errorPos
+            }
 
-ignore :: Lexer b
-ignore = Lexer Ignore (Edges [])
+satisfy :: (c -> Bool) -> Lexer c c
+satisfy predicate = item >>= \c ->
+    if predicate c
+    then pure c
+    else pzero
 
-satisfy :: (Char -> Bool) -> Lexer Char
-satisfy predicate = Lexer NonTerminal (Edges [(predicate, pure id)])
-
-char :: Char -> Lexer Char
+char :: Eq c => c -> Lexer c c
 char c = satisfy (==c)
 
-string :: String -> Lexer [Char]
+string :: String -> Lexer Char [Char]
 string = string' . unpacked
 
-string' :: [Char] -> Lexer [Char]
+string' :: Eq c => [c] -> Lexer c [c]
 string' [] = pure []
 string' (c:cs) = fmap (:) (char c) <*> string' cs
 
-pair :: Lexer a -> Lexer b -> Lexer (a,b)
+pair :: Lexer s a -> Lexer s b -> Lexer s (a,b)
 pair a b = fmap (,) a <*> b
 
-pairWith :: (a -> b -> c) -> Lexer a -> Lexer b -> Lexer c
+pairWith :: (a -> b -> c) -> Lexer s a -> Lexer s b -> Lexer s c
 pairWith f a b = fmap f a <*> b
 
-digit :: Lexer Char
+digit :: Lexer Char Char
 digit = satisfy isDigit
 
-upper :: Lexer Char
+upper :: Lexer Char Char
 upper = satisfy isUpper
 
-lower :: Lexer Char
+lower :: Lexer Char Char
 lower = satisfy isLower
 
-letter :: Lexer Char
+letter :: Lexer Char Char
 letter = satisfy isAlpha
 
-alphanumeric :: Lexer Char
+alphanumeric :: Lexer Char Char
 alphanumeric = satisfy isAlphaNum
 
-space :: Lexer Char
+space :: Lexer Char Char
 space = satisfy isSpace
 
 type Position = (Int, Int)
-data Lexeme a = Bad Position | Ok Position a | EOF Position
-derive Show (Lexeme a)
+initialPosition :: Position
+initialPosition = (1,1)
 
-getNextLexer :: Edges a -> Char -> Maybe (Lexer (Char -> a))
-getNextLexer (Edges edges) c = fmap snd (find (`fst` c) edges)
+-- data Lexeme a = Bad Position | Ok Position a | EOF Position
+-- derive Show (Lexeme a)
 
 stepPosition :: Char -> Position -> Position
 stepPosition '\n' (line, _) = (line+1,1)
 stepPosition _ (line, col) = (line, col+1)
+
+--runLexer :: Lexer symbol token -> [symbol] -> [(token, [symbol])]
+--runLexer lexer = runTokenParser $ lexer.run (\token -> Accept token Fail)
+
+-- scan :: TokenParser symbol token -> [symbol] -> Position -> (TokenParser symbol token, [symbol], Position)
+-- scan parser startInput startPos = consume parser startPos startInput (Fail, startInput, startPos)
+
+{-
+runTokenParser :: TokenParser symbol token -> [symbol] -> [(token, [symbol])]
+runTokenParser (Symbol f) (c:cs) = runTokenParser (f c) cs
+runTokenParser (Accept x parser) cs = (x, cs) : runTokenParser parser cs
+runTokenParser Fail _ = []
 
 scan :: (Show a) => Lexer a -> Position -> [Char] -> (State a, [Char], Position)
 scan lexer startPos startInput = consume lexer startPos startInput (NonTerminal, startInput, startPos)
@@ -153,27 +214,7 @@ checkPrefix prefix pos lexemes = case prefix of
     [] -> lexemes
     _ -> Bad pos : lexemes
 
-initialPosition :: Position
-initialPosition = (1,1)
 
-runLexer :: (Show a) => Lexer a -> [Char] -> [Lexeme a]
-runLexer lexer = tokenize (initialPosition, initialPosition) []
-    where
-        -- tokenize :: (Position, Position) -> String -> String -> [Lexeme a]
-        tokenize (pos, errPos) prefix input
-            | traceLn (show input) = undefined
-            | otherwise =
-                let scanned = scan lexer pos input
-                in if (traceLn (show scanned)) then undefined
-                else case scanned of
-                    --EOF
-                    (NonTerminal, [], pos') -> checkPrefix prefix errPos [EOF pos']
-                    --För att fortsätta när man hittar en BAD:
-                    (NonTerminal, c:input', pos') -> tokenize (stepPosition c pos', errPos) (c:prefix) input'
-                    --Hittat en token. Kolla prefix och lexa resten.
-                    (Terminal token, input', pos') ->  checkPrefix prefix errPos $ Ok pos token : tokenize (pos', pos') [] input'
-                    --Hittat en ignore. Kolla prexif och lexa resten.
-                    (Ignore, input', pos') -> checkPrefix prefix errPos $ tokenize (pos', pos') [] input'
 
 isOk lexeme = case lexeme of
     Ok _ _ -> true
@@ -185,3 +226,4 @@ ofOk (EOF _) = error "Did not get a valid token"
 
 toValidTokens :: [Lexeme a] -> [a]
 toValidTokens = map ofOk . filter (isOk)
+-}

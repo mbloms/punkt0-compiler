@@ -1,7 +1,6 @@
 package test.frege.TestLexer where
 
 import frege.test.QuickCheck
-import lexer.Lexer (State)
 import Data.Monoid
 
 f :: [a] -> [a]  -- we should think of any such function
@@ -24,11 +23,12 @@ monoidRightId x = property $ x <> mempty == x
 functorIdProp :: (Functor f, Eq (f a)) => f a -> Property
 functorIdProp x = property $ (fmap id x) == x
 
+{-
 instance Arbitrary Arbitrary a => (State a) where
     arbitrary = oneof [genTerminal, pure NonTerminal, pure Ignore]
         where
             genTerminal = fmap Terminal arbitrary
-
+-}
 {-
 data Fn a c =
     Pair (Fn a (Fn b c)) -> Fn (a,b) -> c
@@ -49,5 +49,4 @@ main = do
     quickCheck (monoidAssocProp :: [Int] -> [Int] -> [Int] -> Property)
     quickCheck (monoidLeftId :: [Int] -> Property)
     quickCheck (functorIdProp :: [Int] -> Property)
-    quickCheck (functorIdProp :: State Int -> Property)
 
