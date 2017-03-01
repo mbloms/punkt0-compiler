@@ -10,5 +10,6 @@ main _
             tokens = ((scanTokens token) . toList) str
             parseTree = (program.run . toValidTokens) tokens
         in (println . show) tokens
+            >> (println . show $ toValidTokens tokens)
             >> (println . show) parseTree
 

@@ -120,8 +120,8 @@ initialPosition :: Position
 initialPosition = (1,1)
 
 stepPosition :: Char -> Position -> Position
-stepPosition '\n' (line, _) = (line+1,1)
-stepPosition _ (line, col) = (line, col+1)
+stepPosition '\n' (!line, _) = (line+1,1)
+stepPosition _ (!line, !col) = (line, col+1)
 
 data ScanResult a = None | T a | I
 derive Show (ScanResult a)
@@ -132,7 +132,9 @@ derive Show (Lexeme a)
 scan lexer startPos startInput
     | otherwise = consume lexer startPos startInput (None, startInput, startPos)
       where
-        consume lexer pos input lastScan
+        -- make consume strict in all arguments
+        -- this avoids stack overflows
+        consume !lexer !pos !input !lastScan
          | otherwise =
             let currentScan = case lexer of
                     Accept x _ -> (T x, input, pos)
