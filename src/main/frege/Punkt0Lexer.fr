@@ -56,7 +56,7 @@ operator :: Lexer Char Operator
 operator = (char '+' *> pure Plus)
     <|> (char '-' *> pure Minus)
     <|> (char '*' *> pure Times)
-    <|> (char '/' *> ((acomment *> pure Noop) <|> pure Div))
+    <|> (char '/' *> ((ignore acomment) <|> pure Div))
     <|> (string "&&" *> pure And)
     <|> (string "||" *> pure Or)
     <|> (char '=' *> (char '=' *> pure Equals <|> pure Assign))
@@ -104,7 +104,6 @@ data Token
     | SemiColon
     | Dot
     | Bang
-    | Junk
 derive Show Token
 derive Eq Token
 
@@ -137,7 +136,7 @@ getLiteral (Literal l) = l
 token :: Lexer Char Token
 token = (char '(' *> pure LParen)
     <|> (char ')' *> pure RParen)
-    <|> (whitespace *> pure Junk)
+    <|> (ignore $ whitespace)
     <|> (char '{' *> pure LBrace)
     <|> (char '}' *> pure RBrace)
     <|> (char ':' *> pure Colon)

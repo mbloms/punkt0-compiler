@@ -1,18 +1,14 @@
 module Main where
-import lexer.Lexer (scanTokens, scanOneToken)
+import lexer.Lexer (scanTokens, toValidTokens)
 import lexer.Punkt0Lexer (identifier, token)
--- import parser.Punkt0Parser (program, expression, simpleexpression)
+import parser.Punkt0Parser (program, expression, simpleexpression)
 
-main :: IO ()
-main = getContents >>= (\str ->
-    print $ scanTokens token (toList str))
-
- -- main :: [String] -> IO ()
- -- main _
- --     = getContents >>= \str ->
- --         let
- --             tokens = ((runLexer token) . toList) str
- --             parseTree = (program.run . toValidTokens) tokens
- --         in (println . show) tokens
- --             >> (println . show) parseTree
+main :: [String] -> IO ()
+main _
+    = getContents >>= \str ->
+        let
+            tokens = ((scanTokens token) . toList) str
+            parseTree = (program.run . toValidTokens) tokens
+        in (println . show) tokens
+            >> (println . show) parseTree
 
