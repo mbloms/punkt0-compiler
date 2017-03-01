@@ -1,10 +1,11 @@
 module Main where
-import lexer.Lexer (runLexer)
-import lexer.Punkt0Lexer (token)
+import lexer.Lexer (scanTokens)
+import lexer.Punkt0Lexer (identifier, token)
 -- import parser.Punkt0Parser (program, expression, simpleexpression)
 
 main :: IO ()
-main = getContents >>= \str -> print $ runLexer token (toList str)
+main = getContents >>= (\str ->
+    print $ scanTokens token (toList str))
 
  -- main :: [String] -> IO ()
  -- main _
