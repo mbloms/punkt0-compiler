@@ -31,7 +31,7 @@ stringliteral = between (char '"') (char '"') $ fmap (LitString . packed) (many 
 
 intliteral = fmap (LitInt . atoi . packed) $ some digit
 
-basicliteral :: Lexer Char Literal
+basicliteral :: Lexer Literal
 basicliteral = stringliteral <|> intliteral
 
 data Operator = Plus
@@ -47,12 +47,12 @@ data Operator = Plus
 derive Show Operator
 derive Eq Operator
 
-acomment :: Lexer Char Char
+acomment :: Lexer Char
 acomment = char '*' *> insidecomment
     where
         insidecomment = many (satisfy (/= '*')) *> char '*' *> (char '/' <|> insidecomment)
 
-operator :: Lexer Char Operator
+operator :: Lexer Operator
 operator = (char '+' *> pure Plus)
     <|> (char '-' *> pure Minus)
     <|> (char '*' *> pure Times)
@@ -117,7 +117,7 @@ checkstringtype str = case lookup str atomictokens of
     Nothing -> Identifier str
     Just atomic -> atomic
 
-identifier :: Lexer Char Token
+identifier :: Lexer Token
 identifier = fmap (checkstringtype . packed) $ fmap (:) (letter <|> char '_') <*> many (alphanumeric <|> char '_')
 
 whitespace = some space
@@ -133,10 +133,10 @@ isLiteral _ = false
 getLiteral :: Token -> Literal
 getLiteral (Literal l) = l
 
-token :: Lexer Char Token
+token :: Lexer Token
 token = (char '(' *> pure LParen)
     <|> (char ')' *> pure RParen)
-    <|> (ignore $ whitespace)
+    <|> (ignore whitespace)
     <|> (char '{' *> pure LBrace)
     <|> (char '}' *> pure RBrace)
     <|> (char ':' *> pure Colon)
