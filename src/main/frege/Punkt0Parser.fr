@@ -1,6 +1,6 @@
 module parser.Punkt0Parser where
 import parser.Parser
-import lexer.Punkt0Lexer as Tokens(Token, getIdentifierString, getLiteral, isLiteral)
+import lexer.Punkt0Lexer as Tokens(Token(), getIdentifierString, getLiteral, isLiteral)
 
 tokenOp :: Tokens.Operator -> Parser Token Token
 tokenOp t = symbol (Tokens.Op t)

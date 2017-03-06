@@ -1,180 +1,120 @@
 module lexer.Lexer where
 import Data.Monoid
+import Data.Iterators(StringIterator)
 import Control.Second(second)
 import Data.List(find)
 import Data.Char(isAlpha,isAlphaNum,isUpper,isDigit,isLower,isSpace)
 
-data LexResult r
-    = Fail { !buffer :: CharSequence, !pos :: Position}
-    | Ignore { !buffer :: CharSequence, !pos :: Position}
-    | Accept { !buffer :: CharSequence, !pos :: Position, !value :: r}
+abstract data Lexer state token result
+    = L { !run :: (state token) -> (Maybe (String | result), state token)}
 
-instance (Show r) => Show (LexResult r) where
-    show (Fail _ _) = "Fail"
-    show (Ignore _ _) = "Ignore"
-    show (Accept _ _ r) = "Accept(" ++ (show r) ++ ")"
+instance Monad (Lexer state token) where
+    pure x = Lexer.L (\pos -> (Just (Right x), pos))
+    Lexer.L lexer >>= f = Lexer.L bind
+        where
+            bind pos = case lexer pos of
+                (Just (Right result), pos') = case f result of
+                    Lexer.L lexer' = lexer' pos'
+                (Just (Left err), pos') = (Just (Left err), pos')
+                (Nothing, pos') = (Nothing, pos')
 
-instance Functor LexResult where
-    fmap _ (Fail rest pos) = Fail rest pos
-    fmap f (Ignore rest pos) = Ignore rest pos
-    fmap f (Accept rest pos x) = Accept rest pos (f x)
+instance Alt (Lexer state token) where
+    Lexer.L lexer <|> Lexer.L lexer' = Lexer.L firstok
+        where
+            firstok pos = case lexer pos of
+                (Just (Left err), pos') -> lexer' pos'
+                right -> right
 
-type Win a r = CharSequence -> Position -> a -> LexResult r
-type Lose r = CharSequence -> Position -> LexResult r
-type Ignore r = CharSequence -> Position -> LexResult r
+instance Plus (Lexer state token) where
+    pzero = Lexer.L (\pos -> (Just (Left "Fail"), pos))
 
-abstract data Lexer a = Lexer {
-    !run :: forall r.
-        CharSequence ->
-        Position ->
-        Lose r ->
-        Ignore r ->
-        Win a r ->
-        LexResult r
-    }
-instance Functor Lexer where
-    fmap !f !lexer = Lexer.Lexer (\ !buffer !pos !lose !ign !win ->
-        let win' !buffer' !pos' !a = win buffer' pos' (f a)
-        in lexer.run buffer pos lose ign win')
+optional lexer = (fmap Just lexer) <|> return Nothing
 
-instance Monad Lexer where
-    pure !x = Lexer.Lexer (\ !buffer !pos !lose !ign !win -> win buffer pos x)
-    !lexer >>= !f
-        = Lexer.Lexer (\ !buffer !pos !lose !ign !win -> if (trace $ packed [buffer.charAt pos.index]) then undefined else
-            let win' !buffer' !pos' !a = f a `seq` (f a).run buffer' pos' lose ign win
-            in lexer.run buffer pos lose ign win')
-
-instance Alt Lexer where
-    !a <|> !b
-        = Lexer.Lexer (\ !buffer !pos !lose !ign !win ->
-        let lose' !buffer' !pos' = b.run buffer' pos' lose ign win
-        in a.run buffer pos lose' ign win
-        )
-
-instance Plus Lexer where
-    pzero = Lexer.Lexer (\ !buffer !pos !lose !ign !win -> lose buffer pos)
-
-
-many :: (Applicative f, Plus f) => f a -> f [a]
-many !v = many_v
+-- strictly accumulate many tokens
+many !p = fmap reverse (many' [])
     where
-        many_v = let first = fmap (:) v
-            in (first <*> many_v)
-               <|> pure []
+        many' acc = do
+            a <- optional p
+            case a  of
+                Nothing -> return acc
+                Just a  -> many' (a:acc)
 
-some :: (Applicative f, Plus f) => f a -> f [a]
-some !v = some_v
+some p = p >>= (\x -> fmap (x:) (many p))
+
+
+ignore :: Lexer state token a -> Lexer state token b
+ignore lexer = Lexer.L discard
     where
-        many_v = (fmap (:) v <*> many_v) <|> pure []
-        some_v = (fmap (:) v) <*> many_v
+        discard pos = case lexer.run pos of
+            (Just (Left err), pos') = (Just (Left err), pos')
+            (_, pos') = (Nothing, pos')
 
-data Position = Position {!index, !line, !col :: Int}
-derive Show Position
-initialPosition :: Position
-initialPosition = Position 0 1 1
-
-stepPosition :: Char -> Position -> Position
-stepPosition '\n' (Position !index !line _) = (Position (index+1) (line+1) 1)
-stepPosition _ (Position !index !line !col) = (Position (index+1) line (col+1))
-
-chatAtPos :: Position -> CharSequence -> Maybe Char
-chatAtPos !pos !buffer
-    = if pos.index < buffer.length
-        then let c = buffer.charAt pos.index
-            in Just c
-        else Nothing
-
-satisfy :: (Char -> Bool) -> Lexer Char
-satisfy !predicate
-    = Lexer.Lexer (\ !buffer !pos !lose !ign !win ->
-            let result = chatAtPos pos buffer
-            in case result of {
-                Nothing -> lose buffer pos;
-                Just !c  ->
-                    if predicate c
-                        then win buffer (stepPosition c pos) c
-                        else lose buffer pos
-                })
-
-ignore :: Lexer a -> Lexer b
-ignore lexer
-    = Lexer.Lexer (\buffer !pos !lose !ign !win ->
-        let win' !buffer' !pos' !_ = ign buffer' pos'
-        in lexer.run buffer pos lose ign win')
-
-failLexer = Fail
-ignoreLexer = Ignore
-winLexer = Accept
-
-lex' :: Lexer a -> CharSequence -> Position -> LexResult a
-lex' !lexer !buffer !pos = lexer.run buffer pos failLexer ignoreLexer winLexer
-
-lex :: Lexer a -> CharSequence -> LexResult a
-lex !lexer !buffer = lex' lexer buffer initialPosition
-
-data Lexeme a = Bad Position | Ok Position a | EOF Position
-derive Show (Lexeme a)
-
-scanTokens :: (Show a) => Lexer a -> CharSequence -> [Lexeme a]
-scanTokens !lexer !buffer = go (buffer, initialPosition)
+eof = Lexer.L isOver
     where
-        go (!buffer, !pos) =
-            let result = lex' lexer buffer pos
-            in case result of
-                Fail !buffer' !pos' ->
-                    if pos'.index >= buffer'.length - 1
-                        then []
-                        else Bad pos : go (buffer', stepPosition (buffer.charAt $ pos'.index) pos')
-                Ignore !buffer' !pos' -> go (buffer', pos')
-                Accept !buffer' !pos' !x -> Ok pos x : go (buffer', pos')
+        isOver pos = case uncons pos of
+            Just (head, _) = (Just (Left "expected EOF"), pos)
+            otherwise = (Just (Right ()), pos)
 
-item :: Lexer Char
+satisfy :: ListView state => (token -> Bool) -> Lexer state token token
+satisfy !predicate = Lexer.L sat
+    where
+        sat pos = case uncons pos of
+            Just (head, tail)
+                | predicate head = (Just (Right head), tail)
+            _ = (Just (Left "unexpected symbol"), pos)
+
 item = satisfy (const true)
 
-char :: Char -> Lexer Char
 char c = satisfy (==c)
 
-string :: String -> Lexer [Char]
+digit = satisfy (isDigit :: Char -> Bool)
+
+upper = satisfy (isUpper :: Char -> Bool)
+
+lower = satisfy (isLower :: Char -> Bool)
+
+letter = satisfy (isAlpha :: Char -> Bool)
+
+alphanumeric = satisfy (isAlphaNum :: Char -> Bool)
+
+space = satisfy (isSpace :: Char -> Bool)
+
+Lexer.L lexer <<|> Lexer.L lexer' = Lexer.L firstok
+    where
+        firstok pos = case lexer pos of
+            (Just (Left err), pos') = lexer' pos'
+            right = right
+
 string = string' . unpacked
 
-string' :: [Char] -> Lexer [Char]
 string' [] = pure []
 string' (c:cs) = fmap (:) (char c) <*> string' cs
 
-pair :: Lexer a -> Lexer b -> Lexer (a,b)
-pair a b = fmap (,) a <*> b
 
-pairWith :: (a -> b -> c) -> Lexer a -> Lexer b -> Lexer c
 pairWith f a b = fmap f a <*> b
+pair a b = pairWith (,)
 
-digit :: Lexer Char
-digit = satisfy isDigit
+data Lexeme a
+    = Bad Int
+    | Ok a Int
+    | EOF Int
+derive (Show (Lexeme a))
 
-upper :: Lexer Char
-upper = satisfy isUpper
+checkError :: (StringIterator Char, StringIterator Char) -> [Lexeme token] -> [Lexeme token]
+checkError (!errPos, !pos) tokens
+    = if errPos.at /= pos.at
+      then Bad errPos.at : tokens
+      else tokens
 
-lower :: Lexer Char
-lower = satisfy isLower
+scanTokens :: Lexer StringIterator Char token -> StringIterator Char -> [Lexeme token]
+scanTokens lexer startPos = go (startPos, startPos)
+    where
+        go (!errPos, !pos :: StringIterator Char) = case lexer.run pos of
+            (Just (Right token), pos' :: StringIterator Char) = checkError (errPos, pos) $ Ok token (pos.at) : go (pos',pos')
+            (Nothing, pos' :: StringIterator Char) = checkError (errPos, pos) $ go (pos',pos')
+            (Just (Left _), pos' :: StringIterator Char) = case uncons pos' of
+                Nothing = checkError (errPos, pos) $[EOF $ pos'.at]
+                Just (_, rest) = if null rest
+                    then checkError (errPos, pos) $[EOF $ pos'.at]
+                    else go (errPos,rest)
 
-letter :: Lexer Char
-letter = satisfy isAlpha
-
-alphanumeric :: Lexer Char
-alphanumeric = satisfy isAlphaNum
-
-space :: Lexer Char
-space = satisfy isSpace
-
-data ScanResult a = None | T a | I
-derive Show (ScanResult a)
-
-isOk lexeme = case lexeme of
-    Ok _ _ -> true
-    _ -> false
-
-ofOk (Ok _ x) = x
-ofOk (Bad _) = error "Did not get a valid token"
-ofOk (EOF _) = error "Did not get a valid token"
-
-toValidTokens :: [Lexeme a] -> [a]
-toValidTokens = map ofOk . filter (isOk)
