@@ -5,27 +5,26 @@ import Data.List(find)
 import Data.Char(isAlpha,isAlphaNum,isUpper,isDigit,isLower,isSpace)
 
 data LexResult r
-    = Fail (CharSequence,Position)
-    | Ignore (CharSequence,Position)
-    | Accept r (CharSequence,Position)
+    = Fail { !buffer :: CharSequence, !pos :: Position}
+    | Ignore { !buffer :: CharSequence, !pos :: Position}
+    | Accept { !buffer :: CharSequence, !pos :: Position, !value :: r}
 
 instance (Show r) => Show (LexResult r) where
-    show (Fail _) = "Fail"
-    show (Ignore _) = "Ignore"
-    show (Accept r _) = "Accept(" ++ (show r) ++ ")"
+    show (Fail _ _) = "Fail"
+    show (Ignore _ _) = "Ignore"
+    show (Accept _ _ r) = "Accept(" ++ (show r) ++ ")"
 
 instance Functor LexResult where
-    fmap _ (Fail rest) = Fail rest
-    fmap f (Ignore rest) = Ignore rest
-    fmap f (Accept x rest) = Accept (f x) rest
+    fmap _ (Fail rest pos) = Fail rest pos
+    fmap f (Ignore rest pos) = Ignore rest pos
+    fmap f (Accept rest pos x) = Accept rest pos (f x)
 
 type Win a r = CharSequence -> Position -> a -> LexResult r
 type Lose r = CharSequence -> Position -> LexResult r
 type Ignore r = CharSequence -> Position -> LexResult r
 
-data Lexer a
-    = Lexer {
-    run :: forall r.
+abstract data Lexer a = Lexer {
+    !run :: forall r.
         CharSequence ->
         Position ->
         Lose r ->
@@ -33,34 +32,35 @@ data Lexer a
         Win a r ->
         LexResult r
     }
-
 instance Functor Lexer where
-    fmap !f lexer = Lexer (\ !buffer !pos !lose !ign !win ->
+    fmap !f !lexer = Lexer.Lexer (\ !buffer !pos !lose !ign !win ->
         let win' !buffer' !pos' !a = win buffer' pos' (f a)
         in lexer.run buffer pos lose ign win')
 
 instance Monad Lexer where
-    pure x = Lexer (\ !buffer !pos !lose !ign !win -> win buffer pos x)
+    pure !x = Lexer.Lexer (\ !buffer !pos !lose !ign !win -> win buffer pos x)
     !lexer >>= !f
-        = Lexer (\ !buffer !pos !lose !ign !win ->
-            let win' !buffer' !pos' !a = let lexer' = f a in lexer'.run buffer' pos' lose ign win
+        = Lexer.Lexer (\ !buffer !pos !lose !ign !win -> if (trace $ packed [buffer.charAt pos.index]) then undefined else
+            let win' !buffer' !pos' !a = f a `seq` (f a).run buffer' pos' lose ign win
             in lexer.run buffer pos lose ign win')
 
 instance Alt Lexer where
     !a <|> !b
-        = Lexer (\ !buffer !pos !lose !ign !win ->
+        = Lexer.Lexer (\ !buffer !pos !lose !ign !win ->
         let lose' !buffer' !pos' = b.run buffer' pos' lose ign win
         in a.run buffer pos lose' ign win
         )
 
 instance Plus Lexer where
-    pzero = Lexer (\ !buffer !pos !lose !ign !win -> lose buffer pos)
+    pzero = Lexer.Lexer (\ !buffer !pos !lose !ign !win -> lose buffer pos)
 
 
 many :: (Applicative f, Plus f) => f a -> f [a]
 many !v = many_v
     where
-        many_v = (fmap (:) v <*> many_v) <|> pure []
+        many_v = let first = fmap (:) v
+            in (first <*> many_v)
+               <|> pure []
 
 some :: (Applicative f, Plus f) => f a -> f [a]
 some !v = some_v
@@ -68,27 +68,27 @@ some !v = some_v
         many_v = (fmap (:) v <*> many_v) <|> pure []
         some_v = (fmap (:) v) <*> many_v
 
-type Position = (Int, Int, Int)
+data Position = Position {!index, !line, !col :: Int}
+derive Show Position
 initialPosition :: Position
-initialPosition = (0,1,1)
-
-posIndex (!index, _, _) = index
+initialPosition = Position 0 1 1
 
 stepPosition :: Char -> Position -> Position
-stepPosition '\n' (!index, !line, _) = (index+1, line+1, 1)
-stepPosition _ (!index, !line, !col) = (index+1, line, col+1)
+stepPosition '\n' (Position !index !line _) = (Position (index+1) (line+1) 1)
+stepPosition _ (Position !index !line !col) = (Position (index+1) line (col+1))
 
 chatAtPos :: Position -> CharSequence -> Maybe Char
 chatAtPos !pos !buffer
-    = if (posIndex pos) < buffer.length
-        then let c = buffer.charAt (posIndex pos)
+    = if pos.index < buffer.length
+        then let c = buffer.charAt pos.index
             in Just c
         else Nothing
 
 satisfy :: (Char -> Bool) -> Lexer Char
-satisfy predicate
-    = Lexer (\ !buffer !pos !lose !ign !win ->
-            case chatAtPos pos buffer of {
+satisfy !predicate
+    = Lexer.Lexer (\ !buffer !pos !lose !ign !win ->
+            let result = chatAtPos pos buffer
+            in case result of {
                 Nothing -> lose buffer pos;
                 Just !c  ->
                     if predicate c
@@ -98,13 +98,13 @@ satisfy predicate
 
 ignore :: Lexer a -> Lexer b
 ignore lexer
-    = Lexer (\buffer !pos !lose !ign !win ->
-        let win' !buffer' !pos' _ = ign buffer pos'
+    = Lexer.Lexer (\buffer !pos !lose !ign !win ->
+        let win' !buffer' !pos' !_ = ign buffer' pos'
         in lexer.run buffer pos lose ign win')
 
-failLexer !buffer !pos = Fail (buffer,pos)
-ignoreLexer !buffer !pos = Ignore (buffer,pos)
-winLexer !buffer !pos !a = Accept a (buffer,pos)
+failLexer = Fail
+ignoreLexer = Ignore
+winLexer = Accept
 
 lex' :: Lexer a -> CharSequence -> Position -> LexResult a
 lex' !lexer !buffer !pos = lexer.run buffer pos failLexer ignoreLexer winLexer
@@ -121,12 +121,12 @@ scanTokens !lexer !buffer = go (buffer, initialPosition)
         go (!buffer, !pos) =
             let result = lex' lexer buffer pos
             in case result of
-                Fail (buffer', pos') ->
-                    if posIndex pos' >= buffer'.length - 1
+                Fail !buffer' !pos' ->
+                    if pos'.index >= buffer'.length - 1
                         then []
-                        else Bad pos : go (buffer', stepPosition (buffer.charAt $ posIndex pos') pos')
-                Ignore (buffer', pos') -> go (buffer', pos')
-                Accept x (buffer', pos') -> Ok pos x : go (buffer', pos')
+                        else Bad pos : go (buffer', stepPosition (buffer.charAt $ pos'.index) pos')
+                Ignore !buffer' !pos' -> go (buffer', pos')
+                Accept !buffer' !pos' !x -> Ok pos x : go (buffer', pos')
 
 item :: Lexer Char
 item = satisfy (const true)
