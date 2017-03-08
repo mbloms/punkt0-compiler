@@ -30,7 +30,9 @@ instance Plus (Lexer state token) where
 
 optional lexer = (fmap Just lexer) <|> return Nothing
 
--- strictly accumulate many tokens
+-- strictly accumulate many tokens into
+-- a reverse list, reversing the list
+-- back into order when done
 many !p = fmap reverse (many' [])
     where
         many' acc = do
@@ -39,8 +41,23 @@ many !p = fmap reverse (many' [])
                 Nothing -> return acc
                 Just a  -> many' (a:acc)
 
-some p = p >>= (\x -> fmap (x:) (many p))
+some p = fmap (:) p <*> (many p)
 
+-- like many but ignores output
+skipWhile :: ListView state => Lexer state token a -> Lexer state token ()
+skipWhile !p = skip'
+    where
+        skip' = do
+            a <- optional p
+            case a  of
+                Nothing -> return ()
+                Just _  -> skip'
+
+skipUntil :: ListView state => (token -> Bool) -> Lexer state token ()
+skipUntil !p = skipWhile (except p)
+
+-- like some but ignores output
+skipSome !p = ignore (p *> skipWhile p)
 
 ignore :: Lexer state token a -> Lexer state token b
 ignore lexer = Lexer.L discard
@@ -62,6 +79,16 @@ satisfy !predicate = Lexer.L sat
             Just (head, tail)
                 | predicate head = (Just (Right head), tail)
             _ = (Just (Left "unexpected symbol"), pos)
+
+except :: ListView state => (token -> Bool) -> Lexer state token ()
+except !predicate = Lexer.L nope
+    where
+        nope pos = case uncons pos of
+            Just (head, tail)
+                | predicate head = (Just (Left "unexpected token"), pos)
+                | otherwise = (Just (Right ()), tail)
+            _ = (Just (Right ()), pos)
+
 
 item = satisfy (const true)
 
@@ -118,3 +145,9 @@ scanTokens lexer startPos = go (startPos, startPos)
                     then checkError (errPos, pos) $[EOF $ pos'.at]
                     else go (errPos,rest)
 
+toValidTokens :: [Lexeme token] -> [token]
+toValidTokens lexemes = go lexemes
+    where
+        go [] = []
+        go ((Ok x _):rest) = x : go rest
+        go (_:rest) = go rest

@@ -4,11 +4,9 @@ class Nothing extends Any {
 }
 
 
-object Main {
-	def bajs():Unit = {
-		if(Java.isBad())
-			println("Java suger.")
-		else
-			println("Impossibruuuuuuuuuuuu")
-	}
+object Main extends Any {
+    if(Java.isBad())
+        println("Java suger.")
+    else
+        println("Impossibruuuuuuuuuuuu")
 }
