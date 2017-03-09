@@ -1,14 +1,35 @@
 module lexer.Lexer where
+import frege.prelude.PreludeBase (StringJ)
 import Data.Monoid
 import Data.Iterators(StringIterator)
 import Control.Second(second)
 import Data.List(find)
 import Data.Char(isAlpha,isAlphaNum,isUpper,isDigit,isLower,isSpace)
 
-abstract data Lexer state token result
-    = L { !run :: (state token) -> (Maybe (String | result), state token)}
+data Position = Pos {!offset, !line, !col :: Int}
+derive Show Position
+abstract data FileIterator = FI {!buffer:: String, !length, !at, !line, !col :: Int} where
+    null FI{at, length} = at >= length
+    next fi
+        | null fi = Nothing
+        | otherwise = nextIter (fi.buffer.polymorphicElemAt fi.at) fi
+        where
+            nextIter c FI{buffer,length,at,line,col}
+                | c == '\n' = Just (c, FI buffer length (at+1) (line+1) 1)
+                | otherwise = Just (c, FI buffer length (at+1) line (col+1))
+    from str = FI str str.length 0 1 1
+    empty = from String.empty
+    position FI{at,line,col} = Pos at line col
+    take n fi
+        | n >= 0 = FI fi.buffer (fi.at+n) fi.at fi.line fi.col
+        | otherwise = fi
 
-instance Monad (Lexer state token) where
+fileIterator str = FileIterator.from str
+
+abstract data Lexer result
+    = L { !run :: (FileIterator) -> (Maybe (String | result), FileIterator)}
+
+instance Monad (Lexer) where
     pure x = Lexer.L (\pos -> (Just (Right x), pos))
     Lexer.L lexer >>= f = Lexer.L bind
         where
@@ -18,14 +39,14 @@ instance Monad (Lexer state token) where
                 (Just (Left err), pos') = (Just (Left err), pos')
                 (Nothing, pos') = (Nothing, pos')
 
-instance Alt (Lexer state token) where
+instance Alt (Lexer) where
     Lexer.L lexer <|> Lexer.L lexer' = Lexer.L firstok
         where
             firstok pos = case lexer pos of
                 (Just (Left err), pos') -> lexer' pos'
                 right -> right
 
-instance Plus (Lexer state token) where
+instance Plus (Lexer) where
     pzero = Lexer.L (\pos -> (Just (Left "Fail"), pos))
 
 optional lexer = (fmap Just lexer) <|> return Nothing
@@ -42,9 +63,7 @@ many !p = fmap reverse (many' [])
                 Just a  -> many' (a:acc)
 
 some p = fmap (:) p <*> (many p)
-
 -- like many but ignores output
-skipWhile :: ListView state => Lexer state token a -> Lexer state token ()
 skipWhile !p = skip'
     where
         skip' = do
@@ -53,37 +72,34 @@ skipWhile !p = skip'
                 Nothing -> return ()
                 Just _  -> skip'
 
-skipUntil :: ListView state => (token -> Bool) -> Lexer state token ()
 skipUntil !p = skipWhile (except p)
 
 -- like some but ignores output
 skipSome !p = ignore (p *> skipWhile p)
 
-ignore :: Lexer state token a -> Lexer state token b
+ignore :: Lexer a -> Lexer b
 ignore lexer = Lexer.L discard
     where
-        discard pos = case lexer.run pos of
+        discard (pos :: FileIterator) = case lexer.run pos of
             (Just (Left err), pos') = (Just (Left err), pos')
             (_, pos') = (Nothing, pos')
 
 eof = Lexer.L isOver
     where
-        isOver pos = case uncons pos of
+        isOver pos = case pos.next of
             Just (head, _) = (Just (Left "expected EOF"), pos)
             otherwise = (Just (Right ()), pos)
 
-satisfy :: ListView state => (token -> Bool) -> Lexer state token token
 satisfy !predicate = Lexer.L sat
     where
-        sat pos = case uncons pos of
+        sat pos = case pos.next of
             Just (head, tail)
                 | predicate head = (Just (Right head), tail)
-            _ = (Just (Left "unexpected symbol"), pos)
-
-except :: ListView state => (token -> Bool) -> Lexer state token ()
+                | otherwise = (Just (Left "unexpected symbol"), pos)
+            Nothing = (Just (Left "unexpected symbol"), pos)
 except !predicate = Lexer.L nope
     where
-        nope pos = case uncons pos of
+        nope pos = case pos.next of
             Just (head, tail)
                 | predicate head = (Just (Left "unexpected token"), pos)
                 | otherwise = (Just (Right ()), tail)
@@ -120,29 +136,28 @@ string' (c:cs) = fmap (:) (char c) <*> string' cs
 
 pairWith f a b = fmap f a <*> b
 pair a b = pairWith (,)
-
 data Lexeme a
-    = Bad Int
-    | Ok a Int
-    | EOF Int
+    = Bad Position
+    | Ok a Position
+    | EOF Position
 derive (Show (Lexeme a))
 
-checkError :: (StringIterator Char, StringIterator Char) -> [Lexeme token] -> [Lexeme token]
+checkError :: (FileIterator, FileIterator) -> [Lexeme token] -> [Lexeme token]
 checkError (!errPos, !pos) tokens
     = if errPos.at /= pos.at
-      then Bad errPos.at : tokens
+      then Bad errPos.position : tokens
       else tokens
 
-scanTokens :: Lexer StringIterator Char token -> StringIterator Char -> [Lexeme token]
+scanTokens :: Lexer token -> FileIterator -> [Lexeme token]
 scanTokens lexer startPos = go (startPos, startPos)
     where
-        go (!errPos, !pos :: StringIterator Char) = case lexer.run pos of
-            (Just (Right token), pos' :: StringIterator Char) = checkError (errPos, pos) $ Ok token (pos.at) : go (pos',pos')
-            (Nothing, pos' :: StringIterator Char) = checkError (errPos, pos) $ go (pos',pos')
-            (Just (Left _), pos' :: StringIterator Char) = case uncons pos' of
-                Nothing = checkError (errPos, pos) $[EOF $ pos'.at]
-                Just (_, rest) = if null rest
-                    then checkError (errPos, pos) $[EOF $ pos'.at]
+        go (!errPos :: FileIterator, !pos :: FileIterator) = case lexer.run pos of
+            (Just (Right token), pos') = checkError (errPos, pos) $ Ok token (pos.position) : go (pos',pos')
+            (Nothing, pos') = checkError (errPos, pos) $ go (pos',pos')
+            (Just (Left _), pos' :: FileIterator) = case pos'.next of
+                Nothing = checkError (errPos, pos) $[EOF $ pos'.position]
+                Just (_, rest) = if rest.null
+                    then checkError (errPos, pos) $[EOF $ pos'.position]
                     else go (errPos,rest)
 
 toValidTokens :: [Lexeme token] -> [token]
@@ -151,3 +166,4 @@ toValidTokens lexemes = go lexemes
         go [] = []
         go ((Ok x _):rest) = x : go rest
         go (_:rest) = go rest
+

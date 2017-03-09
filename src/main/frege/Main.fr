@@ -1,6 +1,5 @@
 module Main where
-import lexer.Lexer (scanTokens, toValidTokens)
-import Data.Iterators(StringIterator)
+import lexer.Lexer (scanTokens, toValidTokens, FileIterator)
 import lexer.Punkt0Lexer (identifier, token)
 import parser.Punkt0Parser (program, expression, simpleexpression)
 
@@ -8,8 +7,8 @@ main :: [String] -> IO ()
 main _
     = getContents >>= \str ->
         let
-            tokens = ((scanTokens token) . StringIterator.from) str
+            tokens = ((scanTokens token) . FileIterator.from) str
             parseTree = (program.run . toValidTokens) tokens
         in do
-            -- mapM_ println tokens
+            mapM_ println tokens
             (println . show) parseTree
