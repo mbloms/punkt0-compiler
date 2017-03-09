@@ -7,7 +7,11 @@ import Data.List(find)
 import Data.Char(isAlpha,isAlphaNum,isUpper,isDigit,isLower,isSpace)
 
 data Position = Pos {!offset, !line, !col :: Int}
-derive Show Position
+
+
+instance Show Position where
+    show Pos{line,col} = "("++ show line ++ ":" ++ show col ++")"
+
 abstract data FileIterator = FI {!buffer:: String, !length, !at, !line, !col :: Int} where
     null FI{at, length} = at >= length
     next fi
@@ -140,7 +144,13 @@ data Lexeme a
     = Bad Position
     | Ok a Position
     | EOF Position
-derive (Show (Lexeme a))
+
+instance Show a => Show (Lexeme a) where
+    show (Bad pos) = "BAD" ++ show pos
+    show (Ok token pos) = show token ++ show pos
+    show (EOF pos) = "EOF" ++ show pos
+
+
 
 checkError :: (FileIterator, FileIterator) -> [Lexeme token] -> [Lexeme token]
 checkError (!errPos, !pos) tokens

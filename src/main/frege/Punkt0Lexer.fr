@@ -1,26 +1,42 @@
 module lexer.Punkt0Lexer where
-import frege.Prelude hiding (LT)
 import lexer.Lexer
 import Data.HashMap
 
-data Type = UnitType
+data Type 
+    = UnitType
     | BooleanType
     | IntType
     | StringType
-derive Show Type
 derive Eq Type
+
+instance Show Type where
+    show UnitType = "UNIT"
+    show BooleanType = "BOOLEAN"
+    show IntType = "INT"
+    show StringType = "STRING"
 
 types :: [(String, Type)]
 types = [("String", StringType), ("Unit", UnitType), ("Int", IntType), ("Boolean", BooleanType)]
 
-data Literal = LitString String
+data Literal 
+    = LitString String
     | LitInt Int
     | LitTrue
     | LitFalse
     | LitNull
     | LitThis
-derive Show Literal
 derive Eq Literal
+
+wrap :: String -> String -> String
+wrap a b = a ++ "(" ++ show b ++ ")"
+
+instance Show Literal where
+    show (LitString str) = wrap "STR" str
+    show (LitInt i) = wrap "INT" (show i)
+    show (LitTrue) = "TRUE"
+    show (LitFalse) = "FALSE"
+    show (LitNull) = "NULL"
+    show (LitThis) = "THIS"
 
 atomicliterals :: [(String, Literal)]
 atomicliterals = [("true", LitTrue), ("false", LitFalse), ("null", LitNull), ("this", LitThis)]
@@ -42,8 +58,8 @@ data Operator = Plus
     | Or
     | Equals
     | Assign
-    | LT
-    | Noop
+    | LessThan
+
 derive Show Operator
 derive Eq Operator
 
@@ -60,7 +76,7 @@ operator
     <|> (string "&&" *> pure And)
     <|> (string "||" *> pure Or)
     <|> (char '=' *> (char '=' *> pure Equals <|> pure Assign))
-    <|> (char '<' *> pure LT)
+    <|> (char '<' *> pure LessThan)
     <|> (char '/' *> (ignore multicomment <|> ignore linecomment <|> pure Div))
 
 data Keyword = Class
@@ -105,8 +121,24 @@ data Token
     | SemiColon
     | Dot
     | Bang
-derive Show Token
 derive Eq Token
+
+instance Show Token where
+    show (Op Assign) = "EQSIGN"
+    show (Op op) = (show op).toUpperCase
+    show (Type t) = show t
+    show (Keyword k) = (show k).toUpperCase
+    show (Literal lit) = show lit
+    show (Identifier str) = "ID("++str++")"
+    show LParen = "LPAREN"
+    show RParen = "RPAREN"
+    show LBrace = "LBRACE"
+    show RBrace = "RBRACE"
+    show Comma = "COMMA"
+    show Colon = "COLON"
+    show SemiColon = "SEMICOLON"
+    show Dot = "DOT"
+    show Bang = "BANG"
 
 mapsnd f = map (\(x, v) -> (x, f v))
 

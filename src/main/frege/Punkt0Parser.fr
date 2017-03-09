@@ -188,7 +188,7 @@ comparative :: Parser Token Expression
 comparative = binOp additive op
     where
         op = (tokenOp Tokens.Equals *> pure Equals)
-            <|> (tokenOp Tokens.LT *> pure LessThan)
+            <|> (tokenOp Tokens.LessThan *> pure LessThan)
 
 additive :: Parser Token Expression
 additive = binOp multiplicative op
