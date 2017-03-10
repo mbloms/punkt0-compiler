@@ -5,8 +5,8 @@ import Data.Iterators(StringIterator)
 import Control.Second(second)
 import Data.List(find)
 import Data.Char(isAlpha,isAlphaNum,isUpper,isDigit,isLower,isSpace)
+import punkt0.Positioned(Position, Positioned)
 
-data Position = Pos {!offset, !line, !col :: Int}
 
 
 instance Show Position where
@@ -135,12 +135,24 @@ string = string' . unpacked
 string' [] = pure []
 string' (c:cs) = fmap (:) (char c) <*> string' cs
 
-pairWith f a b = fmap f a <*> b
-pair a b = pairWith (,)
 data Lexeme a
     = Bad Position
     | Ok a Position
     | EOF Position
+
+instance Eq a => Eq (Lexeme a) where
+    hashCode (Bad _) = 0
+    hashCode (EOF _) = 1
+    hashCode (Ok a _) = 2 + hashCode a
+    (Bad _) == (Bad _) = true
+    (Ok a _) == (Ok a' _) = a == a'
+    (EOF _) == (EOF _) = true
+    _ == _ = false
+
+instance Positioned (Lexeme a) where
+    position (Bad pos) = pos
+    position (Ok _ pos) = pos
+    position (EOF pos) = pos
 
 instance Show a => Show (Lexeme a) where
     show (Bad pos) = "BAD" ++ show pos
@@ -166,11 +178,3 @@ scanTokens lexer startPos = go (startPos, startPos)
                 Just (_, rest) = if rest.null
                     then checkError (errPos, pos') $[EOF $ pos'.position]
                     else go (errPos, rest)
-
-toValidTokens :: [Lexeme token] -> [token]
-toValidTokens lexemes = go lexemes
-    where
-        go [] = []
-        go ((Ok x _):rest) = x : go rest
-        go (_:rest) = go rest
-

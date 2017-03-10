@@ -1,5 +1,5 @@
 module Main where
-import lexer.Lexer (scanTokens, toValidTokens, FileIterator, Lexeme(Bad))
+import lexer.Lexer (scanTokens, FileIterator, Lexeme(Bad))
 import lexer.Punkt0Lexer (identifier, token, Token())
 import parser.Punkt0Parser (program, expression, simpleexpression, Program)
 import frege.control.monad.trans.MonadIO
@@ -31,7 +31,7 @@ tokenPhase file =
 
 parsePhase :: [Lexeme Token] -> Phase Program
 parsePhase tokens =
-    let result = program.run . toValidTokens $ tokens
+    let result = program.run $ tokens
     in phase $ pure $ case result of
         [] = report1 "No possible parse"
         [([],p)] = pure p

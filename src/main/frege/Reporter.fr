@@ -1,6 +1,6 @@
 module punkt0.Reporter where
 
-import Data.Monoid
+import Data.Monoid(Semigroup,<>)
 import frege.control.monad.trans.MonadTrans
 import frege.control.monad.trans.MonadIO
 
@@ -18,7 +18,7 @@ instance Functor (Accumulate e) where
     fmap f (ARight x) = ARight $ f x
     fmap _ (ALeft err) = ALeft err
 
-instance Monoid e => Applicative (Accumulate e) where
+instance Semigroup e => Applicative (Accumulate e) where
     pure = ARight
     ARight f <*> ARight x = ARight $ f x
     -- accumulate errors
@@ -31,7 +31,7 @@ data ReporterT e m a = ReporterT {!run :: m (Accumulate e a)}
 instance Functor f => Functor (ReporterT e f) where
     fmap f (ReporterT m) = ReporterT (fmap (fmap f) m)
 
-instance (Applicative f, Monoid e) => Applicative (ReporterT e f) where
+instance (Applicative f, Semigroup e) => Applicative (ReporterT e f) where
     pure x = ReporterT (pure (pure x))
     -- apply monoidally merges errors and applies values
     ReporterT f <*> ReporterT x =

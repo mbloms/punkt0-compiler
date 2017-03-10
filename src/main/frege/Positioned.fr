@@ -1,0 +1,6 @@
+module punkt0.Positioned where
+
+data Position = Pos {!offset, !line, !col :: Int}
+
+class Positioned t where
+    position :: t -> Position
