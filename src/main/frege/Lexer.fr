@@ -15,8 +15,15 @@ instance Show Position where
 abstract data FileIterator = FI {!buffer:: String, !length, !at, !line, !col :: Int} where
     null FI{at, length} = at >= length
     next fi
-        | null fi = Nothing
-        | otherwise = nextIter (fi.buffer.polymorphicElemAt fi.at) fi
+        | null fi = Nothing --there is no next char
+        | otherwise = case nextIter (fi.buffer.polymorphicElemAt fi.at) fi of
+                Just (c, ni)
+                    -- EOF should be at same line and col as last char
+                    -- we need to increment the offset `at` however
+                    -- in order not to get stuck in a loop
+                    | null ni = Just (c, ni.{line=fi.line,col=fi.col})
+                    | otherwise = Just (c, ni)
+                Nothing = error "Internal lexer erorr"
         where
             nextIter c FI{buffer,length,at,line,col}
                 | c == '\n' = Just (c, FI buffer length (at+1) (line+1) 1)
@@ -174,7 +181,7 @@ scanTokens lexer startPos = go (startPos, startPos)
             (Nothing, pos')
                 | otherwise = checkError (errPos, pos) $ go (pos',pos')
             (Just (Left _), pos' :: FileIterator) = case pos'.next of
-                Nothing = checkError (errPos, pos') $[EOF $ pos'.position]
+                Nothing = checkError (errPos, pos') $ [EOF $ pos'.position]
                 Just (_, rest) = if rest.null
-                    then checkError (errPos, pos') $[EOF $ pos'.position]
+                    then checkError (errPos, pos') $ [EOF $ pos'.position]
                     else go (errPos, rest)
