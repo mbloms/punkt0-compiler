@@ -1,7 +1,7 @@
 package test.frege.TestLexer where
 
+{-
 import frege.test.QuickCheck
-import lexer.Lexer (State)
 import Data.Monoid
 
 f :: [a] -> [a]  -- we should think of any such function
@@ -28,7 +28,7 @@ instance Arbitrary Arbitrary a => (State a) where
     arbitrary = oneof [genTerminal, pure NonTerminal, pure Ignore]
         where
             genTerminal = fmap Terminal arbitrary
-
+-}
 {-
 data Fn a c =
     Pair (Fn a (Fn b c)) -> Fn (a,b) -> c
@@ -42,12 +42,11 @@ data Fun a b = Fun (a :-> b, b, Bool) (a -> b)
 
 functorCompProp :: (Functor f, Eq (f c)) => f a -> Fun a b -> Fun b c -> Property
 functorCompProp x (Fun _ f) (Fun _ g) = property $ (fmap (g . f) x) == (fmap g . fmap f $ x)
--}
 
 main = do
     quickCheck commutativity_map
     quickCheck (monoidAssocProp :: [Int] -> [Int] -> [Int] -> Property)
     quickCheck (monoidLeftId :: [Int] -> Property)
     quickCheck (functorIdProp :: [Int] -> Property)
-    quickCheck (functorIdProp :: State Int -> Property)
 
+-}

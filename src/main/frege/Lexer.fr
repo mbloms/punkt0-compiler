@@ -1,187 +1,179 @@
 module lexer.Lexer where
+import frege.prelude.PreludeBase (StringJ)
 import Data.Monoid
+import Data.Iterators(StringIterator)
 import Control.Second(second)
 import Data.List(find)
 import Data.Char(isAlpha,isAlphaNum,isUpper,isDigit,isLower,isSpace)
 
--- Nicer looking function composition operator :)
-infixr 3 ∘
-f ∘ g = \x -> f (g x)
+data Position = Pos {!offset, !line, !col :: Int}
 
-data Edges token = Edges [(Char -> Bool, Lexer (Char -> token))]
-data State token = NonTerminal | Ignore | Terminal token
-derive Eq (State token)
-derive Show (State token)
-data Lexer token = Lexer (State token) (Edges token)
 
-instance Functor State where
-    fmap _ NonTerminal = NonTerminal
-    fmap _ Ignore = Ignore
-    fmap f (Terminal token) = Terminal (f token)
+instance Show Position where
+    show Pos{line,col} = "("++ show line ++ ":" ++ show col ++")"
 
-instance Applicative State where
-    pure = Terminal
+abstract data FileIterator = FI {!buffer:: String, !length, !at, !line, !col :: Int} where
+    null FI{at, length} = at >= length
+    next fi
+        | null fi = Nothing
+        | otherwise = nextIter (fi.buffer.polymorphicElemAt fi.at) fi
+        where
+            nextIter c FI{buffer,length,at,line,col}
+                | c == '\n' = Just (c, FI buffer length (at+1) (line+1) 1)
+                | otherwise = Just (c, FI buffer length (at+1) line (col+1))
+    from str = FI str str.length 0 1 1
+    empty = from String.empty
+    position FI{at,line,col} = Pos at line col
+    take n fi
+        | n >= 0 = FI fi.buffer (fi.at+n) fi.at fi.line fi.col
+        | otherwise = fi
 
-    Terminal f <*> Terminal a = Terminal (f a)
-    Ignore <*> _ = Ignore
-    _ <*> Ignore = Ignore
-    _ <*> _ = NonTerminal
+fileIterator str = FileIterator.from str
 
-instance Alt State where
-    NonTerminal <|> result    = result
-    result <|> NonTerminal    = result
-    result <|> _       = result
+abstract data Lexer result
+    = L { !run :: (FileIterator) -> (Maybe (String | result), FileIterator)}
 
-instance Plus State where
-    pzero = NonTerminal
+instance Monad (Lexer) where
+    pure x = Lexer.L (\pos -> (Just (Right x), pos))
+    Lexer.L lexer >>= f = Lexer.L bind
+        where
+            bind pos = case lexer pos of
+                (Just (Right result), pos') = case f result of
+                    Lexer.L lexer' = lexer' pos'
+                (Just (Left err), pos') = (Just (Left err), pos')
+                (Nothing, pos') = (Nothing, pos')
 
-instance Functor Edges where
-    fmap f (Edges edges) = Edges $ map (second (fmap (f ∘))) edges
+instance Alt (Lexer) where
+    Lexer.L lexer <|> Lexer.L lexer' = Lexer.L firstok
+        where
+            firstok pos = case lexer pos of
+                (Just (Left err), pos') -> lexer' pos'
+                right -> right
 
-instance Monoid (Edges a) where
-    mempty = Edges []
+instance Plus (Lexer) where
+    pzero = Lexer.L (\pos -> (Just (Left "Fail"), pos))
 
-    (Edges as) `mappend` (Edges bs) = Edges (as <> bs)
+optional lexer = (fmap Just lexer) <|> return Nothing
 
-instance Functor Lexer where
-    fmap f (Lexer state edges) = Lexer (fmap f state) (fmap f edges)
-
-applyToEdges :: Edges (a -> b) -> Lexer a -> Edges b
-applyToEdges (Edges edges) xs = Edges $ fmap (second (\next -> fmap flip next <*> xs)) edges
-
-instance Applicative Lexer where
-    pure token = Lexer (pure token) (Edges [])
-
-    Lexer NonTerminal edges <*> xs =
-        Lexer NonTerminal (applyToEdges edges xs)
-
-    Lexer Ignore edges <*> xs =
-        Lexer Ignore (applyToEdges edges xs)
-
-    --Map all functions from fs onto all values from xs
-    Lexer (Terminal f) fedges <*> xs@(Lexer xstate xedges) =
-        Lexer (pure f <*> xstate) (fmap f xedges <> applyToEdges fedges xs)
-
-instance Alt Lexer where
-    Lexer state edges <|> Lexer state' edges' =
-        Lexer (state <|> state') (edges <> edges')
-
-instance Plus Lexer where
-    pzero = Lexer NonTerminal (Edges [])
-
-many :: (Applicative f, Plus f) => f a -> f [a]
-many !v = many_v
+-- strictly accumulate many tokens into
+-- a reverse list, reversing the list
+-- back into order when done
+many !p = fmap reverse (many' [])
     where
-        -- same definition as for some causes:
-        -- ClassCastException: BlackHole cannot be cast to Lexer$TLexer
-        many_v = (fmap (:) v <*> many_v) <|> pure []
+        many' acc = do
+            a <- optional p
+            case a  of
+                Nothing -> return acc
+                Just a  -> many' (a:acc)
 
-some :: (Applicative f, Plus f) => f a -> f [a]
-some !v = some_v
+some p = fmap (:) p <*> (many p)
+-- like many but ignores output
+skipWhile !p = skip'
     where
-        many_v = (fmap (:) v <*> many_v) <|> pure []
-        some_v = (fmap (:) v) <*> many_v
+        skip' = do
+            a <- optional p
+            case a  of
+                Nothing -> return ()
+                Just _  -> skip'
+
+skipUntil !p = skipWhile (except p)
+
+-- like some but ignores output
+skipSome !p = ignore (p *> skipWhile p)
+
+ignore :: Lexer a -> Lexer b
+ignore lexer = Lexer.L discard
+    where
+        discard (pos :: FileIterator) = case lexer.run pos of
+            (Just (Left err), pos') = (Just (Left err), pos')
+            (_, pos') = (Nothing, pos')
+
+eof = Lexer.L isOver
+    where
+        isOver pos = case pos.next of
+            Just (head, _) = (Just (Left "expected EOF"), pos)
+            otherwise = (Just (Right ()), pos)
+
+satisfy !predicate = Lexer.L sat
+    where
+        sat pos = case pos.next of
+            Just (head, tail)
+                | predicate head = (Just (Right head), tail)
+                | otherwise = (Just (Left "unexpected symbol"), pos)
+            Nothing = (Just (Left "unexpected symbol"), pos)
+except !predicate = Lexer.L nope
+    where
+        nope pos = case pos.next of
+            Just (head, tail)
+                | predicate head = (Just (Left "unexpected token"), pos)
+                | otherwise = (Just (Right ()), tail)
+            _ = (Just (Right ()), pos)
 
 
-ignore :: Lexer b
-ignore = Lexer Ignore (Edges [])
+item = satisfy (const true)
 
-satisfy :: (Char -> Bool) -> Lexer Char
-satisfy predicate = Lexer NonTerminal (Edges [(predicate, pure id)])
-
-char :: Char -> Lexer Char
 char c = satisfy (==c)
 
-string :: String -> Lexer [Char]
+digit = satisfy (isDigit :: Char -> Bool)
+
+upper = satisfy (isUpper :: Char -> Bool)
+
+lower = satisfy (isLower :: Char -> Bool)
+
+letter = satisfy (isAlpha :: Char -> Bool)
+
+alphanumeric = satisfy (isAlphaNum :: Char -> Bool)
+
+space = satisfy (isSpace :: Char -> Bool)
+
+Lexer.L lexer <<|> Lexer.L lexer' = Lexer.L firstok
+    where
+        firstok pos = case lexer pos of
+            (Just (Left err), pos') = lexer' pos'
+            right = right
+
 string = string' . unpacked
 
-string' :: [Char] -> Lexer [Char]
 string' [] = pure []
 string' (c:cs) = fmap (:) (char c) <*> string' cs
 
-pair :: Lexer a -> Lexer b -> Lexer (a,b)
-pair a b = fmap (,) a <*> b
 
-pairWith :: (a -> b -> c) -> Lexer a -> Lexer b -> Lexer c
 pairWith f a b = fmap f a <*> b
+pair a b = pairWith (,)
+data Lexeme a
+    = Bad Position
+    | Ok a Position
+    | EOF Position
 
-digit :: Lexer Char
-digit = satisfy isDigit
+instance Show a => Show (Lexeme a) where
+    show (Bad pos) = "BAD" ++ show pos
+    show (Ok token pos) = show token ++ show pos
+    show (EOF pos) = "EOF" ++ show pos
 
-upper :: Lexer Char
-upper = satisfy isUpper
 
-lower :: Lexer Char
-lower = satisfy isLower
 
-letter :: Lexer Char
-letter = satisfy isAlpha
+checkError :: (FileIterator, FileIterator) -> [Lexeme token] -> [Lexeme token]
+checkError (!errPos, !pos) tokens
+    = if errPos.at /= pos.at
+      then Bad errPos.position : tokens
+      else tokens
 
-alphanumeric :: Lexer Char
-alphanumeric = satisfy isAlphaNum
-
-space :: Lexer Char
-space = satisfy isSpace
-
-type Position = (Int, Int)
-data Lexeme a = Bad Position | Ok Position a | EOF Position
-derive Show (Lexeme a)
-
-getNextLexer :: Edges a -> Char -> Maybe (Lexer (Char -> a))
-getNextLexer (Edges edges) c = fmap snd (find (`fst` c) edges)
-
-stepPosition :: Char -> Position -> Position
-stepPosition '\n' (line, _) = (line+1,1)
-stepPosition _ (line, col) = (line, col+1)
-
-scan :: (Show a) => Lexer a -> Position -> [Char] -> (State a, [Char], Position)
-scan lexer startPos startInput = consume lexer startPos startInput (NonTerminal, startInput, startPos)
+scanTokens :: Lexer token -> FileIterator -> [Lexeme token]
+scanTokens lexer startPos = go (startPos, startPos)
     where
-        consume (Lexer state edges) pos input lastScan =
-            let currentScan = nextScan state
-            in case input of
-                [] -> currentScan
-                (c:cs) -> case getNextLexer edges c of
-                    Nothing -> currentScan
-                    Just next -> consume (next <*> pure c) (stepPosition c pos) cs currentScan
-            where
-                nextScan NonTerminal = lastScan
-                nextScan _ = (state, input, pos)
+        go (!errPos :: FileIterator, !pos :: FileIterator) = case lexer.run pos of
+            (Just (Right token), pos') = checkError (errPos, pos) $ Ok token (pos.position) : go (pos',pos')
+            (Nothing, pos') = checkError (errPos, pos) $ go (pos',pos')
+            (Just (Left _), pos' :: FileIterator) = case pos'.next of
+                Nothing = checkError (errPos, pos) $[EOF $ pos'.position]
+                Just (_, rest) = if rest.null
+                    then checkError (errPos, pos) $[EOF $ pos'.position]
+                    else go (errPos,rest)
 
-checkPrefix :: [Char] -> Position -> [Lexeme a] -> [Lexeme a]
-checkPrefix prefix pos lexemes = case prefix of
-    [] -> lexemes
-    _ -> Bad pos : lexemes
-
-initialPosition :: Position
-initialPosition = (1,1)
-
-runLexer :: (Show a) => Lexer a -> [Char] -> [Lexeme a]
-runLexer lexer = tokenize (initialPosition, initialPosition) []
+toValidTokens :: [Lexeme token] -> [token]
+toValidTokens lexemes = go lexemes
     where
-        -- tokenize :: (Position, Position) -> String -> String -> [Lexeme a]
-        tokenize (pos, errPos) prefix input
-            | traceLn (show input) = undefined
-            | otherwise =
-                let scanned = scan lexer pos input
-                in if (traceLn (show scanned)) then undefined
-                else case scanned of
-                    --EOF
-                    (NonTerminal, [], pos') -> checkPrefix prefix errPos [EOF pos']
-                    --För att fortsätta när man hittar en BAD:
-                    (NonTerminal, c:input', pos') -> tokenize (stepPosition c pos', errPos) (c:prefix) input'
-                    --Hittat en token. Kolla prefix och lexa resten.
-                    (Terminal token, input', pos') ->  checkPrefix prefix errPos $ Ok pos token : tokenize (pos', pos') [] input'
-                    --Hittat en ignore. Kolla prexif och lexa resten.
-                    (Ignore, input', pos') -> checkPrefix prefix errPos $ tokenize (pos', pos') [] input'
+        go [] = []
+        go ((Ok x _):rest) = x : go rest
+        go (_:rest) = go rest
 
-isOk lexeme = case lexeme of
-    Ok _ _ -> true
-    _ -> false
-
-ofOk (Ok _ x) = x
-ofOk (Bad _) = error "Did not get a valid token"
-ofOk (EOF _) = error "Did not get a valid token"
-
-toValidTokens :: [Lexeme a] -> [a]
-toValidTokens = map ofOk . filter (isOk)

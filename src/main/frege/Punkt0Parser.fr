@@ -1,6 +1,6 @@
 module parser.Punkt0Parser where
 import parser.Parser
-import lexer.Punkt0Lexer as Tokens(Token, getIdentifierString, getLiteral, isLiteral)
+import lexer.Punkt0Lexer as Tokens(Token(), getIdentifierString, getLiteral, isLiteral)
 
 tokenOp :: Tokens.Operator -> Parser Token Token
 tokenOp t = symbol (Tokens.Op t)
@@ -46,26 +46,19 @@ classDeclaration = do
 
 data MainDeclaration = Main
     { name :: Identifier
-    , methodName :: Identifier
+    , extends :: Identifier
+    , vars :: [VarDeclaration]
     , body :: [Expression]
     }
 
 mainDeclaration :: Parser Token MainDeclaration
 mainDeclaration = do
-    tokenKey Tokens.Object
-    name <- identifier
+    name <- tokenKey Tokens.Object >> identifier
+    extends <- tokenKey Tokens.Extends >> identifier
     braces $ do
-        tokenKey Tokens.Def
-        methodName <- identifier
-        symbol Tokens.LParen
-        symbol Tokens.RParen
-        symbol Tokens.Colon
-        tokenType Tokens.UnitType
-        tokenOp Tokens.Assign
-        body <- braces $
-            list expression (symbol Tokens.SemiColon)
-        return $ Main name methodName body
-
+        vars <- many varDeclaration
+        body <- list1 expression (symbol Tokens.SemiColon)
+        return $! Main name extends vars body
 
 data VarDeclaration = Var {name :: Identifier, varType :: Type, expr :: Expression}
 
@@ -91,8 +84,7 @@ data MethodDeclaration = MethodDeclaration
 
 list1 :: Parser Token a -> Parser Token b -> Parser Token [a]
 list1 elem separator = (fmap (:) elem <*> many (separator *> elem))
-
-list elem separator = (fmap (:) elem <*> many (separator *> elem)) <|> pure []
+list elem separator = list1 elem separator <|> pure []
 
 methodDeclaration :: Parser Token MethodDeclaration
 methodDeclaration = do
@@ -176,14 +168,13 @@ data Expression
 derive Show Expression
 
 binOp :: Parser Token Expression -> Parser Token BinOp -> Parser Token Expression
-binOp stronger op
-    = do
+binOp stronger op = do
         e <- stronger;
-        result <- (optional $ fmap (,) op <*> stronger)
-        case result of
-            Nothing -> return e
-            Just (operator, e2) -> return $ BinOp e operator e2
-
+        results <- many $ fmap (,) op <*> stronger
+        return $! buildOp e results
+    where
+        buildOp e [] = e
+        buildOp e ((operator, e2):rest) = buildOp (BinOp e operator e2) rest
 
 expression = logical
 
@@ -197,7 +188,7 @@ comparative :: Parser Token Expression
 comparative = binOp additive op
     where
         op = (tokenOp Tokens.Equals *> pure Equals)
-            <|> (tokenOp Tokens.LT *> pure LessThan)
+            <|> (tokenOp Tokens.LessThan *> pure LessThan)
 
 additive :: Parser Token Expression
 additive = binOp multiplicative op
@@ -221,14 +212,15 @@ literalToExpression Tokens.LitThis = LitThis
 methodCall :: Parser Token Expression
 methodCall = do
     obj <- simpleexpression
-    call <- optional $ do
+    calls <- many $ do
         symbol Tokens.Dot
         method <- identifier
         args <- parens $ list expression (symbol Tokens.Comma)
-        return $ MethodCall obj method args
-    return $ case call of
-        Nothing -> obj
-        Just call -> call
+        return (method,args)
+    return $ buildCall obj calls
+    where
+        buildCall obj [] = obj
+        buildCall obj ((method,args):rest) = buildCall (MethodCall obj method args) rest
 
 simpleexpression =
     (parens expression)

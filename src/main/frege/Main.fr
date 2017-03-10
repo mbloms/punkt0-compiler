@@ -1,15 +1,56 @@
 module Main where
-import lexer.Lexer (runLexer, toValidTokens)
-import lexer.Punkt0Lexer (token)
-import parser.Punkt0Parser (program, expression, simpleexpression)
+import lexer.Lexer (scanTokens, toValidTokens, FileIterator)
+import lexer.Punkt0Lexer (identifier, token)
+import parser.Punkt0Parser (program, expression, simpleexpression, Program)
+import frege.java.IO(File)
+
+data Context = Context
+    { !file
+    , !outDir :: Maybe String
+    , !eval
+    , !help
+    , !pretty
+    , !tokens
+    , !ast
+    , !symbolIds :: Bool
+    }
+
+defaultContext = Context Nothing Nothing false false false false false false
+
+parseFlags :: [String] -> Context -> Context
+parseFlags [] context = context
+parseFlags ("-d":file:args) context = parseFlags args context.{outDir=Just file}
+parseFlags ("--help":args) context = parseFlags args context.{help=true}
+parseFlags ("--tokens":args) context = parseFlags args context.{tokens=true}
+parseFlags ("--ast":args) context = parseFlags args context.{ast=true}
+parseFlags ("--print":args) context = parseFlags args context.{pretty=true}
+parseFlags (file:args) context = parseFlags args context.{file=Just file}
+
 
 main :: [String] -> IO ()
-main _
+main args 
     = getContents >>= \str ->
         let
-            tokens = ((runLexer token) . toList) str
-            parseTree = (program.run . toValidTokens) tokens
-        in (println . show) tokens
-            >> (println . show) parseTree
+            context = parseFlags args defaultContext
+            tokens = input context.file >>= return . (scanTokens token) . FileIterator.from
+                
+            parseTree = tokens >>= return . program.run . toValidTokens
+        in do
+            when context.help (displayHelp >> System.exit 0)
+            --LEX
+            when context.tokens (tokens >>= mapM_ println)
+            --when errorish crasha
+            --PARSE
+            when context.ast (parseTree >>= println . show)
+            when context.pretty (parseTree >>= prettyPrint)
+            --NÄSTA PHASE
+        where
+            input :: Maybe String -> IO String
+            input file = case file of
+                Nothing -> getContents
+                (Just name) -> readFile name
 
-
+displayHelp :: IO ()
+displayHelp = print "Well. Don't ask me."
+prettyPrint :: [([Punkt0Lexer.Token],Program)] -> IO ()
+prettyPrint = undefined
