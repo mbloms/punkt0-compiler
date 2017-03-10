@@ -20,6 +20,7 @@ abstract data FileIterator = FI {!buffer:: String, !length, !at, !line, !col :: 
         where
             nextIter c FI{buffer,length,at,line,col}
                 | c == '\n' = Just (c, FI buffer length (at+1) (line+1) 1)
+                | c == '\t' = Just (c, FI buffer length (at+1) (line) (col+4))
                 | otherwise = Just (c, FI buffer length (at+1) line (col+1))
     from str = FI str str.length 0 1 1
     empty = from String.empty
@@ -44,10 +45,12 @@ instance Monad (Lexer) where
                 (Nothing, pos') = (Nothing, pos')
 
 instance Alt (Lexer) where
-    Lexer.L lexer <|> Lexer.L lexer' = Lexer.L firstok
+    Lexer.L lexer <|> Lexer.L lexer' = Lexer.L backtrack
         where
-            firstok pos = case lexer pos of
-                (Just (Left err), pos') -> lexer' pos'
+            backtrack pos = case lexer pos of
+                (Just (Left err), pos')
+                    | pos'.at == pos.at = lexer' pos -- only backtrack if nothing consumed
+                    | otherwise = (Just (Left err), pos')
                 right -> right
 
 instance Plus (Lexer) where
@@ -67,6 +70,7 @@ many !p = fmap reverse (many' [])
                 Just a  -> many' (a:acc)
 
 some p = fmap (:) p <*> (many p)
+{-
 -- like many but ignores output
 skipWhile !p = skip'
     where
@@ -80,7 +84,7 @@ skipUntil !p = skipWhile (except p)
 
 -- like some but ignores output
 skipSome !p = ignore (p *> skipWhile p)
-
+-}
 ignore :: Lexer a -> Lexer b
 ignore lexer = Lexer.L discard
     where
@@ -126,17 +130,10 @@ alphanumeric = satisfy (isAlphaNum :: Char -> Bool)
 
 space = satisfy (isSpace :: Char -> Bool)
 
-Lexer.L lexer <<|> Lexer.L lexer' = Lexer.L firstok
-    where
-        firstok pos = case lexer pos of
-            (Just (Left err), pos') = lexer' pos'
-            right = right
-
 string = string' . unpacked
 
 string' [] = pure []
 string' (c:cs) = fmap (:) (char c) <*> string' cs
-
 
 pairWith f a b = fmap f a <*> b
 pair a b = pairWith (,)
@@ -150,25 +147,25 @@ instance Show a => Show (Lexeme a) where
     show (Ok token pos) = show token ++ show pos
     show (EOF pos) = "EOF" ++ show pos
 
-
-
 checkError :: (FileIterator, FileIterator) -> [Lexeme token] -> [Lexeme token]
 checkError (!errPos, !pos) tokens
     = if errPos.at /= pos.at
       then Bad errPos.position : tokens
       else tokens
 
-scanTokens :: Lexer token -> FileIterator -> [Lexeme token]
+scanTokens :: (Show token) => Lexer token -> FileIterator -> [Lexeme token]
 scanTokens lexer startPos = go (startPos, startPos)
     where
         go (!errPos :: FileIterator, !pos :: FileIterator) = case lexer.run pos of
-            (Just (Right token), pos') = checkError (errPos, pos) $ Ok token (pos.position) : go (pos',pos')
-            (Nothing, pos') = checkError (errPos, pos) $ go (pos',pos')
+            (Just (Right token), pos')
+                | otherwise = checkError (errPos, pos) $ Ok token (pos.position) : go (pos',pos')
+            (Nothing, pos')
+                | otherwise = checkError (errPos, pos) $ go (pos',pos')
             (Just (Left _), pos' :: FileIterator) = case pos'.next of
-                Nothing = checkError (errPos, pos) $[EOF $ pos'.position]
+                Nothing = checkError (errPos, pos') $[EOF $ pos'.position]
                 Just (_, rest) = if rest.null
-                    then checkError (errPos, pos) $[EOF $ pos'.position]
-                    else go (errPos,rest)
+                    then checkError (errPos, pos') $[EOF $ pos'.position]
+                    else go (errPos, rest)
 
 toValidTokens :: [Lexeme token] -> [token]
 toValidTokens lexemes = go lexemes
