@@ -1,29 +1,51 @@
 module parser.Punkt0Parser where
 import parser.Parser
+import punkt0.Positioned
+import lexer.Lexer(Lexeme())
 import lexer.Punkt0Lexer as Tokens(Token(), getIdentifierString, getLiteral, isLiteral)
 
-tokenOp :: Tokens.Operator -> Parser Token Token
-tokenOp t = symbol (Tokens.Op t)
+type Lex = Lexeme Token
 
-tokenLit :: Tokens.Literal -> Parser Token Token
-tokenLit t = symbol (Tokens.Literal t)
+literal = satisfy $ \lex ->
+    case lex of
+        Lexeme.Ok t _ = isLiteral t
+        _ = false
 
-tokenKey :: Tokens.Keyword -> Parser Token Token
-tokenKey t = symbol (Tokens.Keyword t)
+tokenIdentifier = satisfy $ \lex ->
+    case lex of
+        Lexeme.Ok (Tokens.Identifier _) _ = true
+        _ = false
 
-tokenType :: Tokens.Type -> Parser Token Token
-tokenType t = symbol (Tokens.Type t)
+token t = symbol (Lexeme.Ok t undefined)
 
-data Program = Program [ClassDeclaration] MainDeclaration
+tokenOp :: Tokens.Operator -> Parser Lex Lex
+tokenOp t = token (Tokens.Op t)
 
-program :: Parser Token Program
-program = fmap Program (many classDeclaration) <*> mainDeclaration
+tokenLit :: Tokens.Literal -> Parser Lex Lex
+tokenLit t = token (Tokens.Literal t)
+
+tokenKey :: Tokens.Keyword -> Parser Lex Lex
+tokenKey t = token (Tokens.Keyword t)
+
+tokenType :: Tokens.Type -> Parser Lex Lex
+tokenType t = token (Tokens.Type t)
+
+tokenEOF = symbol (Lexeme.EOF undefined)
+
+data Program = Program [ClassDeclaration] MainDeclaration Position
+
+toProgram [] main = Program [] main main.position
+toProgram (c:rest) main = Program (c:rest) main c.position
+
+program :: Parser Lex Program
+program = fmap toProgram (many classDeclaration) <*> mainDeclaration <* tokenEOF
 
 data ClassDeclaration = Class
     { name :: Identifier
     , extends :: (Maybe Identifier)
     , vars :: [VarDeclaration]
     , methods :: [MethodDeclaration]
+    , pos :: Position
     }
 derive Show Program
 derive Show ClassDeclaration
@@ -31,47 +53,58 @@ derive Show MainDeclaration
 derive Show VarDeclaration
 derive Show MethodDeclaration
 derive Show Type
+instance Positioned ClassDeclaration where
+    position Class{pos} = pos
 
 wrapping start mid after = start *> mid <* after
-braces mid = wrapping (symbol Tokens.LBrace) mid (symbol Tokens.RBrace)
-parens mid = wrapping (symbol Tokens.LParen) mid (symbol Token.RParen)
+braces mid = wrapping (token Tokens.LBrace) mid (token Tokens.RBrace)
+parens mid = wrapping (token Tokens.LParen) mid (token Token.RParen)
 
-classDeclaration :: Parser Token ClassDeclaration
+classDeclaration :: Parser Lex ClassDeclaration
 classDeclaration = do
-    tokenKey Tokens.Class
+    cls <- tokenKey Tokens.Class
     name <- identifier
     extends <- optional (tokenKey Tokens.Extends >> identifier)
     (vars, methods) <- braces $ fmap (,) (many varDeclaration) <*> (many methodDeclaration)
-    return $ Class name extends vars methods
+    return $ Class name extends vars methods cls.position
 
 data MainDeclaration = Main
     { name :: Identifier
     , extends :: Identifier
     , vars :: [VarDeclaration]
     , body :: [Expression]
+    , pos :: Position
     }
+instance Positioned MainDeclaration where
+    position Main{pos} = pos
 
-mainDeclaration :: Parser Token MainDeclaration
+mainDeclaration :: Parser Lex MainDeclaration
 mainDeclaration = do
-    name <- tokenKey Tokens.Object >> identifier
+    obj <- tokenKey Tokens.Object
+    name <- identifier
     extends <- tokenKey Tokens.Extends >> identifier
     braces $ do
         vars <- many varDeclaration
-        body <- list1 expression (symbol Tokens.SemiColon)
-        return $! Main name extends vars body
+        body <- list1 expression (token Tokens.SemiColon)
+        return $! Main name extends vars body obj.position
 
-data VarDeclaration = Var {name :: Identifier, varType :: Type, expr :: Expression}
+data VarDeclaration = Var
+    { name :: Identifier
+    , varType :: Type
+    , expr :: Expression
+    , pos :: Position
+    }
 
-varDeclaration :: Parser Token VarDeclaration
+varDeclaration :: Parser Lex VarDeclaration
 varDeclaration = do
     tokenKey Tokens.Var
     name <- identifier
-    symbol Tokens.Colon
+    token Tokens.Colon
     t <- typeParser
     tokenOp Tokens.Assign
     expr <- expression
-    symbol Tokens.SemiColon
-    return $ Var name t expr
+    token Tokens.SemiColon
+    return $ Var name t expr name.position
 
 data MethodDeclaration = MethodDeclaration
     { override :: Bool
@@ -80,34 +113,32 @@ data MethodDeclaration = MethodDeclaration
     , returnType :: Type
     , vars :: [VarDeclaration]
     , exprs :: [Expression]
+    , pos :: Position
     }
 
-list1 :: Parser Token a -> Parser Token b -> Parser Token [a]
+list1 :: Parser t a -> Parser t b -> Parser t [a]
 list1 elem separator = (fmap (:) elem <*> many (separator *> elem))
 list elem separator = list1 elem separator <|> pure []
 
-methodDeclaration :: Parser Token MethodDeclaration
+methodDeclaration :: Parser Lex MethodDeclaration
 methodDeclaration = do
         override <- (fmap isJust . optional . tokenKey) Tokens.Override
-        tokenKey Tokens.Def
+        def <- tokenKey Tokens.Def
         name <- identifier
         args <- parens parseArgs
-        returnType <- symbol Tokens.Colon *> typeParser
+        returnType <- token Tokens.Colon *> typeParser
         tokenOp Tokens.Assign
         (vars,exprs) <- braces
             $ fmap (,) (many varDeclaration)
-            <*> (list1 expression (symbol Tokens.SemiColon))
-        return $ MethodDeclaration override name args returnType vars exprs
+            <*> (list1 expression (token Tokens.SemiColon))
+        return $ MethodDeclaration override name args returnType vars exprs def.position
     where
         parseArg = do
             arg <- identifier
-            symbol Tokens.Colon
+            token Tokens.Colon
             t <- typeParser
             return (arg, t)
-        parseArgs = list parseArg (symbol Tokens.Comma)
-
-
-
+        parseArgs = list parseArg (token Tokens.Comma)
 
 data Type
     = Bool
@@ -116,7 +147,7 @@ data Type
     | Unit
     | User {typeName :: Identifier}
 
-typeParser :: Parser Token Type
+typeParser :: Parser Lex Type
 typeParser =
     (tokenType Tokens.BooleanType *> pure Bool)
     <|> (tokenType Tokens.IntType *> pure Int)
@@ -125,13 +156,18 @@ typeParser =
     <|> (fmap User identifier)
 
 data Identifier
-    = ID String
+    = ID String Position
 derive Show Identifier
+instance Positioned Identifier where
+    position (ID _ pos) = pos
 
-identifier :: Parser Token Identifier
+identifier :: Parser Lex Identifier
 identifier =
-    fmap (ID . unJust . getIdentifierString) $
-        satisfy (isJust . getIdentifierString)
+    fmap toIdentifier tokenIdentifier
+    where
+        toIdentifier lex = case lex of
+            (Lexeme.Ok (Tokens.Identifier str) pos) = ID str pos
+            _ = error "Internal parse error"
 
 data BinOp
     = And
@@ -145,52 +181,72 @@ data BinOp
 derive Show BinOp
 
 data Expression
-    = BinOp {lhs :: Expression, op :: BinOp, rhs :: Expression}
-    | MethodCall Expression Identifier [Expression]
-    | LitInt Int
-    | LitString String
-    | LitTrue
-    | LitFalse
-    | Identifier {id :: Identifier}
-    | LitThis
-    | LitNull
-    | New {obj ::Identifier}
-    | Not {expr :: Expression}
-    | Parens Expression
-    | Block [Expression]
+    = BinOp {lhs :: Expression, op :: BinOp, rhs :: Expression, pos :: Position}
+    | MethodCall Expression Identifier [Expression] Position
+    | LitInt Int Position
+    | LitString String Position
+    | LitTrue Position
+    | LitFalse Position
+    | Identifier {id :: Identifier, pos :: Position}
+    | LitThis Position
+    | LitNull Position
+    | New {obj ::Identifier, pos :: Position}
+    | Not {expr :: Expression, pos :: Position}
+    | Parens Expression Position
+    | Block [Expression] Position
     | If { predicate :: Expression
          , body :: Expression
          , elseBody :: (Maybe Expression)
+         , pos :: Position
          }
-    | While {predicate :: Expression, body :: Expression}
-    | Println {expr :: Expression}
-    | Assign {var :: Identifier, expr :: Expression}
+    | While {predicate :: Expression, body :: Expression, pos :: Position}
+    | Println {expr :: Expression, pos :: Position}
+    | Assign {var :: Identifier, expr :: Expression, pos :: Position}
 derive Show Expression
 
-binOp :: Parser Token Expression -> Parser Token BinOp -> Parser Token Expression
+instance Positioned Expression where
+    position (BinOp _ _ _ pos) = pos
+    position (MethodCall _ _ _ pos) = pos
+    position (LitInt _ pos) = pos
+    position (LitString _ pos) = pos
+    position (LitTrue pos) = pos
+    position (LitFalse pos) = pos
+    position (Identifier _ pos) = pos
+    position (LitThis pos) = pos
+    position (LitNull pos) = pos
+    position (New _ pos) = pos
+    position (Not _ pos) = pos
+    position (Parens _ pos) = pos
+    position (Block _ pos) = pos
+    position (If _ _ _ pos) = pos
+    position (While _ _ pos) = pos
+    position (Println _ pos) = pos
+    position (Assign _ _ pos) = pos
+
+binOp :: Parser Lex Expression -> Parser Lex BinOp -> Parser Lex Expression
 binOp stronger op = do
         e <- stronger;
         results <- many $ fmap (,) op <*> stronger
         return $! buildOp e results
     where
         buildOp e [] = e
-        buildOp e ((operator, e2):rest) = buildOp (BinOp e operator e2) rest
+        buildOp e ((operator, e2):rest) = buildOp (BinOp e operator e2 e.position) rest
 
 expression = logical
 
-logical :: Parser Token Expression
+logical :: Parser Lex Expression
 logical = binOp comparative op
     where
         op = (tokenOp Tokens.And *> pure And)
             <|> (tokenOp Tokens.Or *> pure Or)
 
-comparative :: Parser Token Expression
+comparative :: Parser Lex Expression
 comparative = binOp additive op
     where
         op = (tokenOp Tokens.Equals *> pure Equals)
             <|> (tokenOp Tokens.LessThan *> pure LessThan)
 
-additive :: Parser Token Expression
+additive :: Parser Lex Expression
 additive = binOp multiplicative op
     where
         op = (tokenOp Tokens.Plus *> pure Plus)
@@ -201,49 +257,59 @@ multiplicative = binOp methodCall op
         op = (tokenOp Tokens.Times *> pure Times)
             <|> (tokenOp Tokens.Div *> pure Div)
 
-literalToExpression :: Tokens.Literal -> Expression
-literalToExpression (Tokens.LitInt i) = LitInt i
-literalToExpression (Tokens.LitString s) = LitString s
-literalToExpression Tokens.LitTrue = LitTrue
-literalToExpression Tokens.LitFalse = LitFalse
-literalToExpression Tokens.LitNull = LitNull
-literalToExpression Tokens.LitThis = LitThis
+literalToExpression :: Lex -> Expression
+literalToExpression (Lexeme.Ok (Tokens.Literal (Tokens.LitInt i)) pos) = LitInt i pos
+literalToExpression (Lexeme.Ok (Tokens.Literal (Tokens.LitString s)) pos) = LitString s pos
+literalToExpression (Lexeme.Ok (Tokens.Literal Tokens.LitTrue) pos) = LitTrue pos
+literalToExpression (Lexeme.Ok (Tokens.Literal Tokens.LitFalse) pos) = LitFalse pos
+literalToExpression (Lexeme.Ok (Tokens.Literal Tokens.LitNull) pos) = LitNull pos
+literalToExpression (Lexeme.Ok (Tokens.Literal Tokens.LitThis) pos) = LitThis pos
+literalToExpression _ = error "Internal parse error"
 
-methodCall :: Parser Token Expression
+methodCall :: Parser Lex Expression
 methodCall = do
     obj <- simpleexpression
     calls <- many $ do
-        symbol Tokens.Dot
+        token Tokens.Dot
         method <- identifier
-        args <- parens $ list expression (symbol Tokens.Comma)
+        args <- parens $ list expression (token Tokens.Comma)
         return (method,args)
     return $ buildCall obj calls
     where
         buildCall obj [] = obj
-        buildCall obj ((method,args):rest) = buildCall (MethodCall obj method args) rest
+        buildCall obj ((method,args):rest) = buildCall (MethodCall obj method args obj.position) rest
+
+posFirst first rest = do
+    f <- first
+    v <- rest
+    return $ v f.position
 
 simpleexpression =
     (parens expression)
-    <|> (fmap Block $ braces $ list expression (symbol Tokens.SemiColon))
-    <|> (fmap (literalToExpression . getLiteral) (satisfy isLiteral))
-    <|> (fmap New $ tokenKey Tokens.New *> identifier <* parens (pure ()))
-    <|> (fmap Not $ symbol Tokens.Bang *> expression)
-    <|> (fmap Println $ tokenKey Tokens.Println *> parens expression)
+    <|> (posFirst (token Tokens.LBrace) $ fmap Block $ list expression (token Tokens.SemiColon) <* token Tokens.RBrace)
+    <|> (fmap (literalToExpression) literal)
+    <|> (posFirst (tokenKey Tokens.New) $ fmap New $ identifier <* parens (pure ()))
+    <|> (posFirst (token Tokens.Bang) $ fmap Not expression)
+    <|> (posFirst (tokenKey Tokens.Println) $ fmap Println $ parens expression)
     <|> ifCase
     <|> whileLoop
-    <|> (fmap Assign identifier <*> (tokenOp Tokens.Assign *> expression))
-    <|> fmap Identifier identifier
+    <|> assign
+    <|> fmap (\id -> Identifier id id.position) identifier
     where
+        assign = do
+            name <- identifier
+            tokenOp Tokens.Assign
+            expr <- expression
+            return $ Assign name expr name.position
         ifCase = do
-            tokenKey Tokens.If
+            i <- tokenKey Tokens.If
             predicate <- parens expression
             body <- expression
             elseBody <- optional (tokenKey Tokens.Else *> expression)
-            return $ If predicate body elseBody
+            return $ If predicate body elseBody i.position
         whileLoop = do
-            tokenKey Tokens.While
+            w <- tokenKey Tokens.While
             predicate <- parens expression
             body <- expression
-            return $ While predicate body
-
+            return $ While predicate body w.position
 
