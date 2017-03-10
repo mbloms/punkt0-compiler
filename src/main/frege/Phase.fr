@@ -1,0 +1,27 @@
+module Phase where
+import punkt0.Reporter
+
+data Phase a = Phase {!run :: ReporterT [String] IO a}
+
+instance Functor Phase where
+    fmap f phase = Phase $ fmap f (phase.run)
+
+instance Applicative Phase where
+    pure x = Phase (pure x)
+    fs <*> xs = Phase $ fs.run <*> xs.run
+
+runPhase :: Phase a -> IO ([String] | a)
+runPhase phase = runReporterT phase.run
+
+phase :: IO (Accumulate [String] a) -> Phase a
+phase = Phase . ReporterT
+
+instance Monad Phase where
+    pure x = Phase (pure x)
+    phase >>= f = Phase $ ReporterT $ do
+        result <- runPhase phase
+        case result of
+            -- If errors crash after showing all errors
+            Left errors = fmap (toAccumulate . Left) (mapM_ println errors >> System.exit 1 >> pure errors)
+            -- If no errors, pass result to next phase
+            Right x = fmap toAccumulate $ runPhase (f x)

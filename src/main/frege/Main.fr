@@ -1,56 +1,64 @@
 module Main where
-import lexer.Lexer (scanTokens, toValidTokens, FileIterator)
-import lexer.Punkt0Lexer (identifier, token)
+import lexer.Lexer (scanTokens, toValidTokens, FileIterator, Lexeme(Bad))
+import lexer.Punkt0Lexer (identifier, token, Token())
 import parser.Punkt0Parser (program, expression, simpleexpression, Program)
-import frege.java.IO(File)
+import frege.control.monad.trans.MonadIO
+import Context
+import Phase
+import punkt0.Reporter
+import Data.Traversable(traverse)
 
-data Context = Context
-    { !file
-    , !outDir :: Maybe String
-    , !eval
-    , !help
-    , !pretty
-    , !tokens
-    , !ast
-    , !symbolIds :: Bool
-    }
+tokens :: String -> [Lexeme Token]
+tokens = (scanTokens token) . FileIterator.from
 
-defaultContext = Context Nothing Nothing false false false false false false
+isBad (Bad _) = true
+isBad _ = false
 
-parseFlags :: [String] -> Context -> Context
-parseFlags [] context = context
-parseFlags ("-d":file:args) context = parseFlags args context.{outDir=Just file}
-parseFlags ("--help":args) context = parseFlags args context.{help=true}
-parseFlags ("--tokens":args) context = parseFlags args context.{tokens=true}
-parseFlags ("--ast":args) context = parseFlags args context.{ast=true}
-parseFlags ("--print":args) context = parseFlags args context.{pretty=true}
-parseFlags (file:args) context = parseFlags args context.{file=Just file}
+tokenPhase :: Maybe String -> Phase [Lexeme Token]
+tokenPhase file =
+    phase $ fmap tokenize (input file)
+    where
+        tokenize :: String -> Accumulate [String] [Lexeme Token]
+        tokenize str =
+            let
+                tokens = (scanTokens token) . FileIterator.from $ str
+                bads = filter isBad tokens
+            in traverse (report1 . show) bads *> pure tokens
+        input :: Maybe String -> IO String
+        input file = case file of
+            Nothing -> getContents
+            (Just name) -> readFile name
 
-
-main :: [String] -> IO ()
-main args 
-    = getContents >>= \str ->
-        let
-            context = parseFlags args defaultContext
-            tokens = input context.file >>= return . (scanTokens token) . FileIterator.from
-                
-            parseTree = tokens >>= return . program.run . toValidTokens
-        in do
-            when context.help (displayHelp >> System.exit 0)
-            --LEX
-            when context.tokens (tokens >>= mapM_ println)
-            --when errorish crasha
-            --PARSE
-            when context.ast (parseTree >>= println . show)
-            when context.pretty (parseTree >>= prettyPrint)
-            --NÄSTA PHASE
-        where
-            input :: Maybe String -> IO String
-            input file = case file of
-                Nothing -> getContents
-                (Just name) -> readFile name
+parsePhase :: [Lexeme Token] -> Phase Program
+parsePhase tokens =
+    let result = program.run . toValidTokens $ tokens
+    in phase $ pure $ case result of
+        [] = report1 "No possible parse"
+        [([],p)] = pure p
+        [(t:_, _)] = report1 $ "unexpected" ++ show t
+        _ = report1 "Ambiguous parse"
 
 displayHelp :: IO ()
 displayHelp = print "Well. Don't ask me."
-prettyPrint :: [([Punkt0Lexer.Token],Program)] -> IO ()
+
+prettyPrint :: Program -> IO ()
 prettyPrint = undefined
+
+crashAndBurn :: Show e => [e] -> IO ()
+crashAndBurn errors = mapM_ println errors >> System.exit 1
+
+runIO :: Show e => (a -> IO ()) -> ([e] | a) -> IO ()
+runIO ok result = either crashAndBurn ok result
+
+main :: [String] -> IO ()
+main args
+    | otherwise =
+        let
+            context = parseFlags args defaultContext
+            tokens = tokenPhase context.file
+            parseTree = tokens >>= parsePhase
+            phases = do
+                when context.tokens ((runPhase tokens) >>= (runIO $ mapM_ println))
+                when context.ast ((runPhase parseTree) >>= (runIO $ println . show))
+                when context.pretty ((runPhase parseTree) >>= (runIO $ prettyPrint))
+        in phases

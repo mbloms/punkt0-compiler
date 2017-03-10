@@ -1,0 +1,24 @@
+module Context where
+data Context = Context
+    { !file
+    , !outDir :: Maybe String
+    , !eval
+    , !help
+    , !pretty
+    , !tokens
+    , !ast
+    , !symbolIds :: Bool
+    }
+derive Show Context
+
+defaultContext = Context Nothing Nothing false false false false false false
+
+parseFlags :: [String] -> Context -> Context
+parseFlags [] context = context
+parseFlags ("-d":file:args) context = parseFlags args context.{outDir=Just file}
+parseFlags ("--help":args) context = parseFlags args context.{help=true}
+parseFlags ("--tokens":args) context = parseFlags args context.{tokens=true}
+parseFlags ("--ast":args) context = parseFlags args context.{ast=true}
+parseFlags ("--print":args) context = parseFlags args context.{pretty=true}
+parseFlags (file:args) context = parseFlags args context.{file=Just file}
+
