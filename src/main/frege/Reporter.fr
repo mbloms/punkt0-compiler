@@ -1,0 +1,45 @@
+module punkt0.Reporter where
+
+import Data.Monoid
+import frege.control.monad.trans.MonadTrans
+import frege.control.monad.trans.MonadIO
+
+data Accumulate e a = ALeft e | ARight a
+
+toEither :: Accumulate e a -> (e | a)
+toEither (ALeft e) = Left e
+toEither (ARight a) = Right a
+
+toAccumulate :: (e | a) -> Accumulate e a
+toAccumulate (Left e) = ALeft e
+toAccumulate (Right a) = ARight a
+
+instance Functor (Accumulate e) where
+    fmap f (ARight x) = ARight $ f x
+    fmap _ (ALeft err) = ALeft err
+
+instance Monoid e => Applicative (Accumulate e) where
+    pure = ARight
+    ARight f <*> ARight x = ARight $ f x
+    -- accumulate errors
+    ALeft e <*> ALeft e' = ALeft (e <> e')
+    ALeft e <*> _ = ALeft e
+    _ <*> ALeft e = ALeft e
+
+data ReporterT e m a = ReporterT {!run :: m (Accumulate e a)}
+
+instance Functor f => Functor (ReporterT e f) where
+    fmap f (ReporterT m) = ReporterT (fmap (fmap f) m)
+
+instance (Applicative f, Monoid e) => Applicative (ReporterT e f) where
+    pure x = ReporterT (pure (pure x))
+    -- apply monoidally merges errors and applies values
+    ReporterT f <*> ReporterT x =
+        ReporterT (liftA2 (<*>) f x)
+
+report1 :: e -> Accumulate [e] a
+report1 msg = ALeft [msg]
+
+runReporterT :: Applicative m => ReporterT e m a -> m (e | a)
+runReporterT reporter = fmap toEither reporter.run
+

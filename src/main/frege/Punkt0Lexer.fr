@@ -2,7 +2,7 @@ module lexer.Punkt0Lexer where
 import lexer.Lexer
 import Data.HashMap
 
-data Type 
+data Type
     = UnitType
     | BooleanType
     | IntType
@@ -18,7 +18,7 @@ instance Show Type where
 types :: [(String, Type)]
 types = [("String", StringType), ("Unit", UnitType), ("Int", IntType), ("Boolean", BooleanType)]
 
-data Literal 
+data Literal
     = LitString String
     | LitInt Int
     | LitTrue
@@ -28,7 +28,7 @@ data Literal
 derive Eq Literal
 
 wrap :: String -> String -> String
-wrap a b = a ++ "(" ++ show b ++ ")"
+wrap a b = a ++ "(" ++ b ++ ")"
 
 instance Show Literal where
     show (LitString str) = wrap "STR" str
@@ -63,11 +63,13 @@ data Operator = Plus
 derive Show Operator
 derive Eq Operator
 
-multicomment = char '*' *> insidecomment
-    where
-        insidecomment = skipUntil (== '*') *> char '*' *> (char '/' <|> insidecomment)
 
-linecomment = char '/' *> skipUntil (== '\n')
+commentordiv :: Lexer Operator
+commentordiv = (char '*' *> (insidecomment *> ignore (pure ()))
+    <|> char '/' *> (many (satisfy (/= '\n')) *> ignore (pure ())))
+    <|> (pure Div)
+    where
+        insidecomment = many (satisfy (/= '*')) *> char '*' *> (char '/' <|> insidecomment)
 
 operator
     = (char '+' *> pure Plus)
@@ -77,7 +79,7 @@ operator
     <|> (string "||" *> pure Or)
     <|> (char '=' *> (char '=' *> pure Equals <|> pure Assign))
     <|> (char '<' *> pure LessThan)
-    <|> (char '/' *> (ignore multicomment <|> ignore linecomment <|> pure Div))
+    <|> (char '/' *> commentordiv)
 
 data Keyword = Class
     | Extends
@@ -150,9 +152,9 @@ checkstringtype str = case lookup str atomictokens of
     Nothing -> Identifier str
     Just atomic -> atomic
 
-identifier = fmap (checkstringtype . packed) $ fmap (:) (letter <|> char '_') <*> many (alphanumeric <|> char '_')
+identifier = fmap (checkstringtype . packed) $ fmap (:) letter <*> many (alphanumeric <|> char '_')
 
-whitespace = skipSome space
+whitespace = ignore $ some space
 
 getIdentifierString :: Token -> Maybe String
 getIdentifierString (Identifier s) = Just s
