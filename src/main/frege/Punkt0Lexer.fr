@@ -66,7 +66,7 @@ derive Eq Operator
 
 commentordiv :: Lexer Operator
 commentordiv = (char '*' *> (insidecomment *> ignore (pure ()))
-    <|> char '/' *> (many (satisfy (/= '\n')) *> ignore (pure ())))
+    <|> (char '/') *> (many (satisfy (/= '\n')) *> ignore (pure ())))
     <|> (pure Div)
     where
         insidecomment = many (satisfy (/= '*')) *> char '*' *> (char '/' <|> insidecomment)

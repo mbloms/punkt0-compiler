@@ -7,6 +7,7 @@ import Context
 import Phase
 import punkt0.Reporter
 import Data.Traversable(traverse)
+import parser.Punkt0Pretty (pretty, intendent)
 
 tokens :: String -> [Lexeme Token]
 tokens = (scanTokens token) . FileIterator.from
@@ -42,7 +43,7 @@ displayHelp :: IO ()
 displayHelp = print "Well. Don't ask me."
 
 prettyPrint :: Program -> IO ()
-prettyPrint = undefined
+prettyPrint x = println $ unwords . map show $ pretty x
 
 crashAndBurn :: Show e => [e] -> IO ()
 crashAndBurn errors = mapM_ println errors >> System.exit 1
@@ -60,5 +61,5 @@ main args
             phases = do
                 when context.tokens ((runPhase tokens) >>= (runIO $ mapM_ println))
                 when context.ast ((runPhase parseTree) >>= (runIO $ println . show))
-                when context.pretty ((runPhase parseTree) >>= (runIO $ prettyPrint))
+                ((runPhase parseTree) >>= (runIO $ prettyPrint))
         in phases
