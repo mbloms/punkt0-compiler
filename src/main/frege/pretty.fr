@@ -81,22 +81,21 @@ instance Pretty MethodDeclaration where
 instance Pretty (Identifier,Type) where
     prettyf (i,t) = prettyf i . colon . prettyf t
 
-override True = (Word "override" :)
+override True = prettyf "override"
 override False = id 
-def = (Word "def" :)
-comma = (Char ',' :)
+def = prettyf "def"
+comma = prettyf ','
 
 unroll :: Pretty a => ([Entry] -> [Entry]) -> [a] -> ([Entry] -> [Entry])
 unroll f (a:b:cs) = prettyf a . f . unroll f (b:cs)
 unroll _ [x] = prettyf x
 unroll _ [] = id
 
-
 instance Pretty String where
-    prettyf str = (Word str :)
+    prettyf = prettyf
 
 instance Pretty Char where
-    prettyf c = (Char c :)
+    prettyf = prettyf
 
 instance Pretty Expression where
     prettyf (LitTrue _) = prettyf "true"
@@ -121,10 +120,10 @@ instance Pretty Expression where
     prettyf (Assign lhs rhs _) = prettyf lhs . prettyf '=' . prettyf rhs
 
 instance Pretty Type where
-    prettyf Bool = (Word "Boolean" :)
-    prettyf Int = (Word "Int" :)
-    prettyf String = (Word "String" :)
-    prettyf Unit = (Word "Unit" :)
+    prettyf Bool = prettyf "Boolean"
+    prettyf Int = prettyf "Int"
+    prettyf String = prettyf "String"
+    prettyf Unit = prettyf "Unit"
     prettyf (User x) = prettyf x
 
 instance Pretty BinOp where
