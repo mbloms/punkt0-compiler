@@ -1,5 +1,5 @@
 module parser.Punkt0Pretty where
-import parser.Punkt0Parser
+import parser.Punkt0Parser hiding (Expression.Parens)
 import Data.List
 
 class Pretty a where
@@ -11,8 +11,8 @@ instance Show Entry where
     show (Word str) = str
     show (Char c) = packed [c]
     show (Brackets xs) = unwords $ "{\n" : (map show) xs ++ ["\n}\n"]
-    show (Parans [xs@(Parans _)]) = show xs 
-    show (Parans xs) = "(" ++ unwords (map show xs) ++ ")"
+    show (Parens [xs@(Parens _)]) = show xs 
+    show (Parens xs) = "(" ++ unwords (map show xs) ++ ")"
 
 intendent :: [Entry] -> [Entry]
 intendent ((Brackets deeper):rest) = Brackets ((prettyf ' ') $ intendent $ intendent deeper) : intendent rest
@@ -21,7 +21,7 @@ intendent [] = []
 
 pretty x = prettyf x []
 
-data Entry = Word String | Brackets [Entry] | Parans [Entry] | Char Char
+data Entry = Word String | Brackets [Entry] | Parens [Entry] | Char Char
 
 classk = (Word "class" :) 
 extends = (Word "extends" :)
@@ -74,7 +74,7 @@ instance Pretty MethodDeclaration where
         . def
         . (prettyf md.name)
         . (
-            wrap Parans (unroll comma (map prettyf md.args))
+            wrap Parens (unroll comma (map prettyf md.args))
             . (prettyf ':' . prettyf md.returnType . prettyf '=')
             . (wrap Brackets (prettyf md.vars . unroll semicolon md.exprs))))
 
@@ -106,16 +106,16 @@ instance Pretty Expression where
     prettyf (LitString str _) = prettyf ("\""++str++"\"")
     prettyf (Identifier x _) = prettyf x
     prettyf (New x _) = prettyf "new" . prettyf x . prettyf "()"
-    prettyf (Not x _) = prettyf '!' . wrap Parans (prettyf x)
+    prettyf (Not x _) = prettyf '!' . wrap Parens (prettyf x)
     prettyf (Block xs _) = wrap Brackets $ unroll semicolon xs
-    prettyf (Println x _) = prettyf "println" . wrap Parans (prettyf x)
-    prettyf (BinOp a x b _) = wrap Parans (prettyf a) . prettyf x . wrap Parans (prettyf b)
-    prettyf (MethodCall expr method args _) = prettyf expr . prettyf '.' . prettyf method . wrap Parans (unroll comma args)
-    prettyf (If pred ifs buts _) = prettyf "if" . wrap Parans (prettyf pred)
+    prettyf (Println x _) = prettyf "println" . wrap Parens (prettyf x)
+    prettyf (BinOp a x b _) = wrap Parens (prettyf a) . prettyf x . wrap Parens (prettyf b)
+    prettyf (MethodCall expr method args _) = prettyf expr . prettyf '.' . prettyf method . wrap Parens (unroll comma args)
+    prettyf (If pred ifs buts _) = prettyf "if" . wrap Parens (prettyf pred)
         . prettyf '\n' . prettyf ifs . prettyf '\n'
             . prettyf (fmap (prettyf "else".) (fmap prettyf buts)) 
                 . prettyf '\n'
-    prettyf (While pred body _) = prettyf "while" . wrap Parans (prettyf pred) . prettyf body
+    prettyf (While pred body _) = prettyf "while" . wrap Parens (prettyf pred) . prettyf body
     prettyf (Assign lhs rhs _) = prettyf lhs . prettyf '=' . prettyf rhs
 
 instance Pretty Type where
