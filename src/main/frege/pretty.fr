@@ -10,12 +10,13 @@ troll = troll
 instance Show Entry where
     show (Word str) = str
     show (Char c) = packed [c]
-    show (Brackets xs) = unwords $ "{" : map show xs ++ ["}"]
-    show (Parans xs) = unwords $ "(" : map show xs ++ ["}"]
+    show (Brackets xs) = unwords $ "{\n" : map show xs ++ ["}"]
+    show (Parans xs) = unwords $ "(" : map show xs ++ [")"]
 
---intendent :: (Int -> ([Entry]->[Entry])) -> Int -> Entry -> Entry
---intendent f i (Brackets deeper) = Brackets (f $ (map (intendent f i+1)) deeper)
---intendent _ _ other = other
+intendent :: [Entry] -> [Entry]
+intendent ((Brackets deeper):rest) = Brackets ((prettyf ' ') $ intendent $ intendent deeper) : intendent rest
+intendent (other:rest) = other: intendent rest
+intendent [] = []
 
 pretty x = prettyf x []
 
@@ -36,7 +37,7 @@ instance Pretty a => Pretty [a] where
     prettyf (x:xs) = prettyf x . prettyf xs
 
 instance Pretty Program where
-    prettyf (Program classes main) = prettyf classes . prettyf main
+    prettyf (Program classes main _) = prettyf classes . prettyf main
 
 instance Pretty ClassDeclaration where
     prettyf cd = classk . prettyf cd.name . prettyf (fmap (\x-> extends . prettyf x) cd.extends) . 
@@ -52,11 +53,11 @@ instance Pretty ([Entry] -> [Entry]) where
     prettyf = id 
 
 instance Pretty MainDeclaration where
-    prettyf md = object . prettyf md.name . extends .
-        wrap Brackets (prettyf md.vars . prettyf md.body)
+    prettyf md = object . prettyf md.name . extends . prettyf md.extends
+        . wrap Brackets (prettyf md.vars . prettyf md.body)
 
 instance Pretty Identifier where
-    prettyf (ID str) = (Word str :)
+    prettyf (ID str _) = (Word str :)
 
 instance Pretty VarDeclaration where
     prettyf vd = var . prettyf vd.name . colon . prettyf vd.varType . eq . prettyf vd.expr . semicolon
@@ -89,28 +90,28 @@ instance Pretty Char where
     prettyf c = (Char c :)
 
 instance Pretty Expression where
-    prettyf LitTrue = prettyf "true"
-    prettyf LitFalse = prettyf "false"
-    prettyf LitThis = prettyf "this"
-    prettyf LitNull = prettyf "null"
-    prettyf (LitInt i) = prettyf i
-    prettyf (LitString str) = prettyf str
-    prettyf (Identifier x) = prettyf x
-    prettyf (New x) = prettyf "new" . prettyf x . prettyf "()"
-    prettyf (Not x) = prettyf '!' . (prettyf x)
-    prettyf (Parens x) = wrap Parans (prettyf x)
-    prettyf (Block xs) = wrap Brackets $ unroll semicolon xs
-    prettyf (Println x) = prettyf "println" . wrap Parans (prettyf x)
-    prettyf (BinOp a x b) = wrap Parans $ prettyf a . prettyf x . prettyf b
-    prettyf (MethodCall expr method args) = wrap Parans $
-        prettyf expr . prettyf '.' . wrap Parans (unroll comma args)
-    prettyf (If pred ifs buts) = wrap Parans $ prettyf "if" . wrap Parans (prettyf pred)
+    prettyf (LitTrue _) = prettyf "true"
+    prettyf (LitFalse _) = prettyf "false"
+    prettyf (LitThis _) = prettyf "this"
+    prettyf (LitNull _) = prettyf "null"
+    prettyf (LitInt i _) = prettyf i
+    prettyf (LitString str _) = prettyf '"' . prettyf str . prettyf '"'
+    prettyf (Identifier x _) = prettyf x
+    prettyf (New x _) = prettyf "new" . prettyf x . prettyf "()"
+    prettyf (Not x _) = prettyf '!' . (prettyf x)
+    prettyf (Parens x _) = wrap Parans (prettyf x)
+    prettyf (Block xs _) = wrap Brackets $ unroll semicolon xs
+    prettyf (Println x _) = prettyf "println" . wrap Parans (prettyf x)
+    prettyf (BinOp a x b _) = wrap Parans $ prettyf a . prettyf x . prettyf b
+    prettyf (MethodCall expr method args _) = wrap Parans $
+        prettyf expr . prettyf '.' . prettyf method . wrap Parans (unroll comma args)
+    prettyf (If pred ifs buts _) = prettyf "if" . wrap Parans (prettyf pred)
         . prettyf ifs
             . prettyf (fmap (prettyf "else".) 
                 (fmap prettyf buts))
-    prettyf (While pred body) = wrap Parans
+    prettyf (While pred body _) = wrap Parans
         $ prettyf "while" . wrap Parans (prettyf pred) . prettyf body
-    prettyf (Assign lhs rhs) = wrap Parans $ prettyf lhs . prettyf '=' . prettyf rhs
+    prettyf (Assign lhs rhs _) = wrap Parans $ prettyf lhs . prettyf '=' . prettyf rhs
 
 instance Pretty Type where
     prettyf Bool = (Word "Bool" :)
