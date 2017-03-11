@@ -1,0 +1,133 @@
+module parser.Punkt0Pretty where
+import parser.Punkt0Parser
+import Data.List
+
+class Pretty a where
+    prettyf :: a -> ([Entry]->[Entry])
+
+troll = troll
+
+instance Show Entry where
+    show (Word str) = str
+    show (Char c) = packed [c]
+    show (Brackets xs) = unwords $ "{" : map show xs ++ ["}"]
+    show (Parans xs) = unwords $ "(" : map show xs ++ ["}"]
+
+--intendent :: (Int -> ([Entry]->[Entry])) -> Int -> Entry -> Entry
+--intendent f i (Brackets deeper) = Brackets (f $ (map (intendent f i+1)) deeper)
+--intendent _ _ other = other
+
+pretty x = prettyf x []
+
+data Entry = Word String | Brackets [Entry] | Parans [Entry] | Char Char
+
+classk = (Word "class" :) 
+extends = (Word "extends" :)
+object = (Word "object" :)
+
+wrap :: ([a] -> Entry) -> ([a] -> [a]) -> ([Entry] -> [Entry])
+wrap f xs = (f (xs []) :)
+
+wrapf :: (a -> Entry) -> a -> ([Entry] -> [Entry])
+wrapf f x = (f x :)
+
+instance Pretty a => Pretty [a] where
+    prettyf [] = id
+    prettyf (x:xs) = prettyf x . prettyf xs
+
+instance Pretty Program where
+    prettyf (Program classes main) = prettyf classes . prettyf main
+
+instance Pretty ClassDeclaration where
+    prettyf cd = classk . prettyf cd.name . prettyf (fmap (\x-> extends . prettyf x) cd.extends) . 
+        wrap Brackets (prettyf cd.vars . prettyf cd.methods)
+
+instance Pretty a => Pretty (Maybe a) where
+    prettyf Nothing = id
+    prettyf (Just x) = prettyf x
+
+instance Pretty Entry where
+    prettyf = (:)
+instance Pretty ([Entry] -> [Entry]) where
+    prettyf = id 
+
+instance Pretty MainDeclaration where
+    prettyf md = object . prettyf md.name . extends .
+        wrap Brackets (prettyf md.vars . prettyf md.body)
+
+instance Pretty Identifier where
+    prettyf (ID str) = (Word str :)
+
+instance Pretty VarDeclaration where
+    prettyf vd = var . prettyf vd.name . colon . prettyf vd.varType . eq . prettyf vd.expr . semicolon
+
+var = (Word "var" :)
+colon = (Char ':' :)
+eq = (Char '=' :)
+semicolon = (Char ';' :)
+
+instance Pretty MethodDeclaration where
+    prettyf md = override md.override . def . prettyf md.name
+        -- [Entry] -> ([Entry]->[Entry])
+        . (wrap Parans . unroll comma . map (\(i,t)-> (prettyf i) . colon . (prettyf t)) ) md.args
+
+override True = (Word "override" :)
+override False = id 
+def = (Word "def" :)
+comma = (Char ',' :)
+
+unroll :: Pretty a => ([Entry] -> [Entry]) -> [a] -> ([Entry] -> [Entry])
+unroll f (a:b:cs) = prettyf a . f . unroll f (b:cs)
+unroll _ [x] = prettyf x
+unroll _ [] = id
+
+
+instance Pretty String where
+    prettyf str = (Word str :)
+
+instance Pretty Char where
+    prettyf c = (Char c :)
+
+instance Pretty Expression where
+    prettyf LitTrue = prettyf "true"
+    prettyf LitFalse = prettyf "false"
+    prettyf LitThis = prettyf "this"
+    prettyf LitNull = prettyf "null"
+    prettyf (LitInt i) = prettyf i
+    prettyf (LitString str) = prettyf str
+    prettyf (Identifier x) = prettyf x
+    prettyf (New x) = prettyf "new" . prettyf x . prettyf "()"
+    prettyf (Not x) = prettyf '!' . (prettyf x)
+    prettyf (Parens x) = wrap Parans (prettyf x)
+    prettyf (Block xs) = wrap Brackets $ unroll semicolon xs
+    prettyf (Println x) = prettyf "println" . wrap Parans (prettyf x)
+    prettyf (BinOp a x b) = wrap Parans $ prettyf a . prettyf x . prettyf b
+    prettyf (MethodCall expr method args) = wrap Parans $
+        prettyf expr . prettyf '.' . wrap Parans (unroll comma args)
+    prettyf (If pred ifs buts) = wrap Parans $ prettyf "if" . wrap Parans (prettyf pred)
+        . prettyf ifs
+            . prettyf (fmap (prettyf "else".) 
+                (fmap prettyf buts))
+    prettyf (While pred body) = wrap Parans
+        $ prettyf "while" . wrap Parans (prettyf pred) . prettyf body
+    prettyf (Assign lhs rhs) = wrap Parans $ prettyf lhs . prettyf '=' . prettyf rhs
+
+instance Pretty Type where
+    prettyf Bool = (Word "Bool" :)
+    prettyf Int = (Word "Int" :)
+    prettyf String = (Word "String" :)
+    prettyf Unit = (Word "Unit" :)
+    prettyf (User x) = prettyf x
+
+instance Pretty BinOp where
+    prettyf And = prettyf "&&"
+    prettyf Or = prettyf "||"
+    prettyf Equals = prettyf "=="
+    prettyf LessThan = prettyf '<'
+    prettyf Plus = prettyf '+'
+    prettyf Minus = prettyf '-'
+    prettyf Times = prettyf '*'
+    prettyf Div = prettyf '/'
+
+instance Pretty Int where
+    prettyf x = prettyf (show x)
