@@ -43,7 +43,7 @@ displayHelp :: IO ()
 displayHelp = print "Well. Don't ask me."
 
 prettyPrint :: Program -> IO ()
-prettyPrint x = println $ unwords . map show . intendent $ pretty x
+prettyPrint x = println $ unwords . map show $ pretty x
 
 crashAndBurn :: Show e => [e] -> IO ()
 crashAndBurn errors = mapM_ println errors >> System.exit 1
