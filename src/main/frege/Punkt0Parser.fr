@@ -192,7 +192,6 @@ data Expression
     | LitNull Position
     | New {obj ::Identifier, pos :: Position}
     | Not {expr :: Expression, pos :: Position}
-    | Parens Expression Position
     | Block [Expression] Position
     | If { predicate :: Expression
          , body :: Expression
@@ -216,7 +215,6 @@ instance Positioned Expression where
     position (LitNull pos) = pos
     position (New _ pos) = pos
     position (Not _ pos) = pos
-    position (Parens _ pos) = pos
     position (Block _ pos) = pos
     position (If _ _ _ pos) = pos
     position (While _ _ pos) = pos
