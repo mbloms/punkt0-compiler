@@ -107,7 +107,6 @@ instance Pretty Expression where
     prettyf (Identifier x _) = prettyf x
     prettyf (New x _) = prettyf "new" . prettyf x . prettyf "()"
     prettyf (Not x _) = prettyf '!' . wrap Parans (prettyf x)
-    prettyf (Parens x _) = prettyf x --Bort med paranteser
     prettyf (Block xs _) = wrap Brackets $ unroll semicolon xs
     prettyf (Println x _) = prettyf "println" . wrap Parans (prettyf x)
     prettyf (BinOp a x b _) = wrap Parans (prettyf a) . prettyf x . wrap Parans (prettyf b)
