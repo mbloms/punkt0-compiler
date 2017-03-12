@@ -1,13 +1,13 @@
 module Main where
 import lexer.Lexer (scanTokens, FileIterator, Lexeme(Bad))
-import lexer.Punkt0Lexer (identifier, token, Token())
-import parser.Punkt0Parser (program, expression, simpleexpression, Program)
+import punkt0.lexer.Tokens (identifier, token, Token())
+import punkt0.parser.Grammar (program, expression, simpleexpression, Program)
 import frege.control.monad.trans.MonadIO
 import Context
 import Phase
 import punkt0.Reporter
 import Data.Traversable(traverse)
-import parser.Punkt0Pretty (pretty, intendent)
+import punkt0.parser.Pretty (prettyPrint)
 
 tokens :: String -> [Lexeme Token]
 tokens = (scanTokens token) . FileIterator.from
@@ -42,8 +42,6 @@ parsePhase tokens =
 displayHelp :: IO ()
 displayHelp = print "Well. Don't ask me."
 
-prettyPrint :: Program -> IO ()
-prettyPrint x = println $ unwords . map show $ pretty x
 
 crashAndBurn :: Show e => [e] -> IO ()
 crashAndBurn errors = mapM_ println errors >> System.exit 1
@@ -61,5 +59,5 @@ main args
             phases = do
                 when context.tokens ((runPhase tokens) >>= (runIO $ mapM_ println))
                 when context.ast ((runPhase parseTree) >>= (runIO $ println . show))
-                ((runPhase parseTree) >>= (runIO $ prettyPrint))
+                when context.pretty ((runPhase parseTree) >>= (runIO $ println . prettyPrint))
         in phases

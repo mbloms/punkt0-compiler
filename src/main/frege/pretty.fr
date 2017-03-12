@@ -1,11 +1,12 @@
-module parser.Punkt0Pretty where
-import parser.Punkt0Parser
+module punkt0.parser.Pretty where
+import punkt0.parser.Grammar
 import Data.List
+
+prettyPrint :: Program -> String
+prettyPrint x = unwords . map show $ pretty x
 
 class Pretty a where
     prettyf :: a -> ([Entry]->[Entry])
-
-troll = troll
 
 instance Show Entry where
     show (Word str) = str
@@ -103,20 +104,20 @@ instance Pretty Expression where
     prettyf (LitThis _) = prettyf "this"
     prettyf (LitNull _) = prettyf "null"
     prettyf (LitInt i _) = prettyf i
-    prettyf (LitString str _) = prettyf (show str)
+    prettyf (LitString str _) = prettyf ("\"" ++ str ++ "\"")
     prettyf (Identifier x _) = prettyf x
     prettyf (New x _) = prettyf "new" . prettyf x . prettyf "()"
-    prettyf (Not x _) = prettyf '!' . wrap Parens (prettyf x)
+    prettyf (Not x _) = wrap Parens $ (prettyf '!') . (prettyf x)
     prettyf (Block xs _) = wrap Brackets $ unroll semicolon xs
     prettyf (Println x _) = prettyf "println" . wrap Parens (prettyf x)
-    prettyf (BinOp a x b _) = wrap Parens (prettyf a) . prettyf x . wrap Parens (prettyf b)
-    prettyf (MethodCall expr method args _) = prettyf expr . prettyf '.' . prettyf method . wrap Parens (unroll comma args)
-    prettyf (If pred ifs buts _) = prettyf "if" . wrap Parens (prettyf pred)
+    prettyf (BinOp a x b _) = wrap Parens $ (prettyf a) . prettyf x . (prettyf b)
+    prettyf (MethodCall expr method args _) = wrap Parens $ prettyf expr . prettyf '.' . prettyf method . wrap Parens (unroll comma args)
+    prettyf (If pred ifs buts _) = wrap Parens $ prettyf "if" . wrap Parens (prettyf pred)
         . prettyf '\n' . prettyf ifs . prettyf '\n'
             . prettyf (fmap (prettyf "else".) (fmap prettyf buts))
                 . prettyf '\n'
-    prettyf (While pred body _) = prettyf "while" . wrap Parens (prettyf pred) . prettyf body
-    prettyf (Assign lhs rhs _) = prettyf lhs . prettyf '=' . prettyf rhs
+    prettyf (While pred body _) = wrap Parens $ prettyf "while" . wrap Parens (prettyf pred) . prettyf body
+    prettyf (Assign lhs rhs _) = wrap Parens $ prettyf lhs . prettyf '=' . prettyf rhs
 
 instance Pretty Type where
     prettyf Bool = prettyf "Boolean"

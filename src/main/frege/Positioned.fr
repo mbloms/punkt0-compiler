@@ -2,5 +2,12 @@ module punkt0.Positioned where
 
 data Position = Pos {!offset, !line, !col :: Int}
 
+initialPosition = Pos 0 1 1
+
+-- All positions are regarded equal
+instance Eq Position where
+    _ == _ = true
+    hashCode _ = 0
+
 class Positioned t where
     position :: t -> Position
