@@ -1,4 +1,4 @@
-module lexer.Punkt0Lexer where
+module punkt0.lexer.Tokens where
 import lexer.Lexer
 import Data.HashMap
 
@@ -44,7 +44,7 @@ atomicliterals = [("true", LitTrue), ("false", LitFalse), ("null", LitNull), ("t
 between before after mid = before *> mid <* after
 
 -- match ", then match any char sequence (not '"'), then match " and return the char sequence
-stringliteral = between (char '"') (char '"') $ fmap (LitString . packed) (many (satisfy (/= '"')))
+stringliteral = between (char '"') (char '"') $ fmap (LitString . packed) (many (satisfy (\c -> c /= '"' && c /= '\n')))
 
 intliteral = fmap (LitInt . atoi . packed) $ some digit
 

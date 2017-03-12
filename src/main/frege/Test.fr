@@ -1,0 +1,128 @@
+module Test where
+
+import frege.test.QuickCheck
+import lexer.Lexer(scanTokens, FileIterator)
+import punkt0.lexer.Tokens (token)
+import punkt0.parser.Grammar (Expression, Identifier, MainDeclaration, Program, BinOp, program)
+import punkt0.Positioned (initialPosition, Position)
+import punkt0.parser.Pretty
+import Data.Char(isPrint)
+
+data NonEmptyString = S { !getNonEmpty :: String}
+
+letters = unpacked "abcdefgijklmnopqrstuvxyzåäöπα"
+digits = unpacked "012345678"
+
+data StringLiteral = SL {!value :: String}
+instance Arbitrary StringLiteral where
+    arbitrary = fmap (SL . packed) $ listOf strChar
+        where
+            -- assume we only have printable strings
+            -- we can't have quotation marks or newlines in string literals
+            -- because there is no escaping
+            strChar = arbitrary `suchThat` (\c -> c /='\n' && c /= '"' && isPrint c)
+
+data Letter = L {!value :: Char}
+instance Arbitrary Letter where
+    arbitrary = oneof (map pure ls)
+        where
+            ls :: [Letter]
+            ls = fmap L letters
+
+data AlphaNum = A {!value :: Char}
+instance Arbitrary AlphaNum where
+    arbitrary = oneof (map pure alphanums)
+        where
+            alphanums :: [AlphaNum]
+            alphanums = fmap A $ letters ++ digits
+
+keywords = ["if","else","def","while","class","object"]
+
+instance Arbitrary NonEmptyString where
+    arbitrary = do
+        (L c) <- arbitrary :: Gen Letter
+        alphanums <- listOf (arbitrary :: Gen AlphaNum)
+        let chars = map AlphaNum.value alphanums
+        let str = packed (c:chars)
+        pure $ S str
+
+instance Arbitrary Identifier where
+    arbitrary
+        = do
+            (S str) <- arbitrary :: Gen NonEmptyString
+            if str `elem` keywords
+             then arbitrary -- try again
+             else pure $ ID str initialPosition
+
+positiveInt :: Gen Int
+positiveInt = fmap Positive.getPositive positive
+    where
+        positive = arbitrary :: Gen (Positive Int)
+
+instance Arbitrary BinOp where
+    arbitrary = oneof $ fmap pure [And, Or, Equals, LessThan, Plus, Minus, Times, Div]
+
+instance Arbitrary Expression where
+    arbitrary = sized arbExpr
+        where
+            simples =
+                [ pure LitTrue <*> pos
+                , pure LitFalse <*> pos
+                , fmap LitInt positiveInt <*> pos
+                , fmap LitString str <*> pos
+                , fmap LitThis pos
+                , fmap LitNull pos
+                , fmap New identifier <*> pos
+                ]
+            arbExpr 0 = oneof $ simples
+            arbExpr n = oneof $ simples ++
+                [ fmap BinOp expression <*> op <*> expression <*> pos
+                , fmap MethodCall expression <*> identifier <*> (listOf expression) <*> pos
+                , fmap Not expression <*> pos
+                , fmap Block (listOf1 expression) <*> pos
+                ]
+                where
+                    expression = (arbExpr (n - 1)) :: Gen Expression
+            identifier = arbitrary :: Gen Identifier
+            op = arbitrary :: Gen BinOp
+            str = fmap StringLiteral.value arbitrary
+            pos :: Gen Position
+            pos = pure initialPosition
+
+instance Arbitrary MainDeclaration where
+    arbitrary
+        = do
+        name <- arbitrary :: Gen Identifier
+        extends <- arbitrary :: Gen Identifier
+        (NonEmpty body) <- (resize 10 arbitrary :: Gen (NonEmptyList Expression))
+        return $ Main name extends [] body initialPosition
+
+instance Arbitrary Program where
+    arbitrary
+        = do
+            main <- arbitrary :: Gen MainDeclaration
+            let classes = []
+            return $ Program classes main initialPosition
+
+parseCode code =
+    let
+        tokens = (scanTokens token) . FileIterator.from $ code
+        [([],parseTree)] = program.run tokens
+    in parseTree
+
+prop_pretty_program :: Program -> Bool
+prop_pretty_program ast
+-- | traceLn $ show ast = undefined
+ | otherwise =
+    let
+        code = prettyPrint ast
+        parseTree = parseCode code
+    in if ast == parseTree
+        then true
+        else if traceLn $ code ++ (unlines [show ast, "\n\t/=\n", show parseTree])
+            then undefined
+            else false
+
+main = do
+    quickCheck prop_pretty_program
+

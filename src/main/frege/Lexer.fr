@@ -146,15 +146,7 @@ data Lexeme a
     = Bad Position
     | Ok a Position
     | EOF Position
-
-instance Eq a => Eq (Lexeme a) where
-    hashCode (Bad _) = 0
-    hashCode (EOF _) = 1
-    hashCode (Ok a _) = 2 + hashCode a
-    (Bad _) == (Bad _) = true
-    (Ok a _) == (Ok a' _) = a == a'
-    (EOF _) == (EOF _) = true
-    _ == _ = false
+derive Eq (Lexeme a)
 
 instance Positioned (Lexeme a) where
     position (Bad pos) = pos
