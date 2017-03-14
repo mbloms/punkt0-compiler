@@ -1,5 +1,5 @@
 module punkt0.parser.Pretty where
-import punkt0.parser.Grammar
+import punkt0.parser.Grammar hiding (wrap)
 import Data.List
 
 prettyPrint :: Program -> String
