@@ -3,6 +3,7 @@ import parser.Parser
 import punkt0.Positioned
 import lexer.Lexer(Lexeme())
 import punkt0.lexer.Tokens as Tokens(Token(), getIdentifierString, getLiteral, isLiteral)
+--import punkt0.parser.AST
 
 type Lex = Lexeme Token
 
@@ -35,17 +36,15 @@ tokenEOF = symbol (Lexeme.EOF undefined)
 data Program = Program [ClassDeclaration] MainDeclaration Position
 derive Eq Program
 
-wrapList xs = wrap "List" (joined ",") (map show xs)
-wrap prefix f x = prefix ++ "(" ++ f x ++ ")"
-joinPair a b = (show a) ++ "," ++ (show b)
-wrapOption mx = case mx of
-    Nothing = "None()"
-    Just x = wrap "Some" show x
-
-instance Show Program where
-    show (Program classes main _) = wrap "Program" id $ joinPair mainMethod (wrapList classes)
-        where
-            mainMethod = wrap "MainDecl" show main
+--wrapList xs = wrap "List" (joined ",") (map show xs)
+--
+--wrap :: String -> (a -> String) -> a -> String
+--wrap prefix f x = prefix ++ "(" ++ f x ++ ")"
+--
+--joinPair a b = (show a) ++ "," ++ (show b)
+--wrapOption mx = case mx of
+--    Nothing = "None()"
+--    Just x = wrap "Some" show x
 
 toProgram [] main = Program [] main main.position
 toProgram (c:rest) main = Program (c:rest) main c.position
@@ -60,20 +59,8 @@ data ClassDeclaration = Class
     , methods :: [MethodDeclaration]
     , pos :: Position
     }
-instance Show ClassDeclaration where
-    show (Class name extends vars methods _)
-        = wrap "ClassDecl" (joined ",")
-            [ show name
-            , wrapOption extends
-            , wrapList vars
-            , wrapList methods
-            ]
 
 derive Eq ClassDeclaration
-derive Show MainDeclaration
-derive Show VarDeclaration
-derive Show MethodDeclaration
-derive Show Type
 instance Positioned ClassDeclaration where
     position Class{pos} = pos
 
@@ -97,6 +84,7 @@ data MainDeclaration = Main
     , pos :: Position
     }
 derive Eq MainDeclaration
+
 instance Positioned MainDeclaration where
     position Main{pos} = pos
 
@@ -183,8 +171,7 @@ typeParser =
 data Identifier
     = ID String Position
 derive Eq Identifier
-instance Show Identifier where
-    show (ID str _) = wrap "Identifier" id str
+
 instance Positioned Identifier where
     position (ID _ pos) = pos
 
@@ -249,24 +236,6 @@ instance Positioned Expression where
     position (Println _ pos) = pos
     position (Assign _ _ pos) = pos
 
-instance Show Expression where
-    show (BinOp e op e' _) = wrap (show op) id $ joinPair e e'
-    show (MethodCall obj method args _) = wrap "MethodCall" (joined ",") $ [show obj, show method, wrapList args]
-    show (LitInt i _) = wrap "IntLit" show i
-    show (LitString str _) = wrap "StringLit" id str
-    show (LitTrue _) = "True()"
-    show (LitFalse _) = "False()"
-    show (LitThis _) = "This()"
-    show (LitNull _) = "Null()"
-    show (New obj _) = wrap "New" show obj
-    show (Not expr _) = wrap "Not" show expr
-    show (If pred when unless _) = wrap "If" (joined ",") [show pred, show when, wrapOption unless]
-    show (While pred body _) = wrap "While" (joined ",") [show pred, show body]
-    show (Block exprs _) = wrap "Block" wrapList exprs
-    show (Println expr _) = wrap "Println" show expr
-    show (Assign name expr _) = wrap "Assign" id $ joinPair name expr
-    show (Identifier i _) = show i
-
 
 binOp :: Parser Lex Expression -> Parser Lex BinOp -> Parser Lex Expression
 binOp stronger op = do
@@ -277,13 +246,13 @@ binOp stronger op = do
         buildOp e [] = e
         buildOp e ((operator, e2):rest) = buildOp (BinOp e operator e2 e.position) rest
 
-expression = logical
+expression = orative
 
-logical :: Parser Lex Expression
-logical = binOp comparative op
-    where
-        op = (tokenOp Tokens.And *> pure And)
-            <|> (tokenOp Tokens.Or *> pure Or)
+orative :: Parser Lex Expression
+orative = binOp andative (tokenOp Tokens.Or *> pure Or)
+
+andative :: Parser Lex Expression
+andative = binOp comparative (tokenOp Tokens.And *> pure And)
 
 comparative :: Parser Lex Expression
 comparative = binOp additive op
@@ -334,7 +303,7 @@ simpleexpression =
     <|> (posFirst (token Tokens.LBrace) $ fmap Block $ list expression (token Tokens.SemiColon) <* token Tokens.RBrace)
     <|> (fmap (literalToExpression) literal)
     <|> (posFirst (tokenKey Tokens.New) $ fmap New $ identifier <* parens (pure ()))
-    <|> (posFirst (token Tokens.Bang) $ fmap Not expression)
+    <|> (posFirst (token Tokens.Bang) $ fmap Not methodCall)
     <|> (posFirst (tokenKey Tokens.Println) $ fmap Println $ parens expression)
     <|> ifCase
     <|> whileLoop
@@ -358,3 +327,87 @@ simpleexpression =
             body <- expression
             return $ While predicate body w.position
 
+
+
+--module punkt0.parser.AST where
+--import punkt0.parser.Grammar
+--import Data.List
+
+wrap :: String -> (a -> String) -> a -> String
+wrap prefix f x = prefix ++ "(" ++ f x ++ ")"
+
+joinPair a b = (show a) ++ "," ++ (show b)
+
+wrapList :: Show a => [a] -> String
+--Gud vet varför det måste vara ett space här, men ingen annanstans.
+wrapList xs = wrap "List" (joined ", ") (map show xs)
+wrapOption mx = case mx of
+    Nothing = "None"
+    Just x = wrap "Some" show x
+
+instance Show Program where
+    show (Program classes main _) = wrap "Program" (joined ",") [show main,wrapList classes]
+
+instance Show MainDeclaration where
+    show md = wrap "MainDecl" (joined ",")
+        [show md.name
+        ,show md.extends
+        ,wrapList md.vars
+        ,wrapList md.body
+        ]
+
+instance Show ClassDeclaration where
+    show (Class name extends vars methods _)
+        = wrap "ClassDecl" (joined ",")
+            [ show name
+            , wrapOption extends
+            , wrapList vars
+            , wrapList methods
+            ]
+
+instance Show Identifier where
+    show (ID str _) = wrap "Identifier" id str
+
+instance Show Expression where
+    show (BinOp e op e' _) = wrap (show op) id $ joinPair e e'
+    show (MethodCall obj method args _) = wrap "MethodCall" (joined ",") $ [show obj, show method, wrapList args]
+    show (LitInt i _) = wrap "IntLit" show i
+    show (LitString str _) = wrap "StringLit" id str
+    show (LitTrue _) = "True()"
+    show (LitFalse _) = "False()"
+    show (LitThis _) = "This()"
+    show (LitNull _) = "Null()"
+    show (New obj _) = wrap "New" show obj
+    show (Not expr _) = wrap "Not" show expr
+    show (If pred when unless _) = wrap "If" (joined ",") [show pred, show when, wrapOption unless]
+    show (While pred body _) = wrap "While" (joined ",") [show pred, show body]
+    show (Block exprs _) = wrap "Block" wrapList exprs
+    show (Println expr _) = wrap "Println" show expr
+    show (Assign name expr _) = wrap "Assign" id $ joinPair name expr
+    show (Identifier i _) = show i
+
+
+instance Show MethodDeclaration where
+    show (MethodDeclaration override name args returnType vars exprs _) = wrap "MethodDecl" (joined ",")
+        [ show override
+        , show returnType
+        , show name
+        , wrap "List" (joined ", " . map (wrap "Formal" (uncurry(flip joinPair)))) args
+        , wrapList vars
+        , wrapList (init exprs)
+        , show (last exprs)
+        ]
+
+instance Show VarDeclaration where
+    show vd = wrap "VarDecl" (joined ",")
+        [ show vd.varType
+        , show vd.name
+        , show vd.expr
+        ]
+
+instance Show Type where
+    show Bool = "BooleanType()"
+    show Int = "IntType()"
+    show String = "StringType()"
+    show Unit = "UnitType()"
+    show (User x) = show x
