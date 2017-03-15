@@ -95,31 +95,36 @@ instance Arbitrary Expression where
             str = fmap StringLiteral.value arbitrary
             pos :: Gen Position
             pos = pure initialPosition
+    shrink (LitInt i pos) = LitNull pos : [LitInt i' pos | i' <- shrink i]
+    shrink (LitTrue pos) = LitNull pos : [LitFalse pos]
+    shrink (LitFalse pos) = [LitNull pos]
+    shrink (LitString s pos) = LitNull pos : [LitString s' pos | s' <- shrink s]
+    shrink (New i pos) = LitNull pos : [Identifier i pos]
+    shrink (Identifier _ pos) = [LitNull pos]
+    shrink (LitThis pos) = [LitNull pos]
+    shrink (LitNull _) = []
     shrink (BinOp left op right pos)
-        = [left, right]
-        ++ [BinOp e op e' pos | e <- shrink left, e' <- shrink right] ++ [left,right]
+        = LitNull pos : [left, right] ++ [BinOp e op e' pos | e <- shrink left, e' <- shrink right] ++ [left,right]
     shrink (MethodCall e i es pos)
-        = (e : es)
-        ++ [MethodCall obj i args pos | obj <- shrink e, args <- shrink es]
-    shrink (Not e pos) = e : [Not e' pos | e' <- shrink e]
-    shrink (Block es pos) = es ++ [Block es' pos | (NonEmpty es') <- shrink (NonEmpty es)]
-    shrink (Println e pos) = e : [Println p pos | p <- shrink e]
-    shrink (Assign i e pos) = e : [Assign i e' pos | e' <- shrink e]
-    shrink (While e e' pos) = e : e' : [While p b pos | p <- shrink e, b <- shrink e']
+        = LitNull pos : e : es ++ [MethodCall obj i args pos | obj <- shrink e, args <- shrink es]
+    shrink (Not e pos) = LitNull pos : e : [Not e' pos | e' <- shrink e]
+    shrink (Block es pos) = LitNull pos : es ++ [Block es' pos | (NonEmpty es') <- shrink (NonEmpty es)]
+    shrink (Println e pos) = LitNull pos : e : [Println p pos | p <- shrink e]
+    shrink (Assign i e pos) = LitNull pos : e : [Assign i e' pos | e' <- shrink e]
+    shrink (While e e' pos) = LitNull pos : e : e' : [While p b pos | p <- shrink e, b <- shrink e']
     shrink (If e e' elseBody pos)
-        = e : e' :
+        = LitNull pos : e : e' :
         [If p b el pos | p <- shrink e, b <- shrink e', el <- shrink elseBody]
-    shrink _ = []
 
 instance Arbitrary MethodDeclaration where
     arbitrary
         = do
         override <- arbitrary
         name <- arbitrary
-        args <- listOf arbitrary
+        args <- resize 2 $ listOf arbitrary
         returnType <- arbitrary
-        vars <- listOf arbitrary
-        exprs <- listOf1 (resize 10 arbitrary)
+        vars <- resize 2 $ listOf arbitrary
+        exprs <- resize 5 $ listOf1 (resize 8 arbitrary)
         return $ MethodDeclaration override name args returnType vars exprs initialPosition
     shrink (MethodDeclaration override name args returnType vars exprs pos)
         = [ MethodDeclaration override name args' returnType vars' exprs' pos
@@ -197,7 +202,11 @@ prop_pretty_method ast =
     let
         code = prettyPrint ast
         parseTree = parseCode code (methodDeclaration <* tokenEOF)
-    in Just ast == parseTree
+    in if Just ast == parseTree
+        then true
+        else if traceLn $ code ++ (unlines [show ast, "\n\t/=\n", show parseTree])
+            then undefined
+            else false
 
 prop_pretty_program :: Program -> Bool
 prop_pretty_program ast
@@ -214,5 +223,6 @@ prop_pretty_program ast
 
 main = do
     quickCheck prop_pretty_method
-    quickCheck (forAll (resize 15 arbitrary) prop_pretty_expr)
+    quickCheck (forAll (resize 7 arbitrary) prop_pretty_expr)
+    quickCheck prop_pretty_program
 

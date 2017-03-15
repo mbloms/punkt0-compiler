@@ -3,7 +3,6 @@ import parser.Parser
 import punkt0.Positioned
 import lexer.Lexer(Lexeme())
 import punkt0.lexer.Tokens as Tokens(Token(), getIdentifierString, getLiteral, isLiteral)
---import punkt0.parser.AST
 
 type Lex = Lexeme Token
 
@@ -35,16 +34,7 @@ tokenEOF = symbol (Lexeme.EOF undefined)
 
 data Program = Program [ClassDeclaration] MainDeclaration Position
 derive Eq Program
-
---wrapList xs = wrap "List" (joined ",") (map show xs)
---
---wrap :: String -> (a -> String) -> a -> String
---wrap prefix f x = prefix ++ "(" ++ f x ++ ")"
---
---joinPair a b = (show a) ++ "," ++ (show b)
---wrapOption mx = case mx of
---    Nothing = "None()"
---    Just x = wrap "Some" show x
+derive Show Program
 
 toProgram [] main = Program [] main main.position
 toProgram (c:rest) main = Program (c:rest) main c.position
@@ -59,8 +49,9 @@ data ClassDeclaration = Class
     , methods :: [MethodDeclaration]
     , pos :: Position
     }
-
 derive Eq ClassDeclaration
+derive Show ClassDeclaration
+
 instance Positioned ClassDeclaration where
     position Class{pos} = pos
 
@@ -84,6 +75,7 @@ data MainDeclaration = Main
     , pos :: Position
     }
 derive Eq MainDeclaration
+derive Show MainDeclaration
 
 instance Positioned MainDeclaration where
     position Main{pos} = pos
@@ -105,6 +97,7 @@ data VarDeclaration = Var
     , pos :: Position
     }
 derive Eq VarDeclaration
+derive Show VarDeclaration
 
 varDeclaration :: Parser Lex VarDeclaration
 varDeclaration = do
@@ -127,6 +120,7 @@ data MethodDeclaration = MethodDeclaration
     , pos :: Position
     }
 derive Eq MethodDeclaration
+derive Show MethodDeclaration
 
 list1 :: Parser t a -> Parser t b -> Parser t [a]
 list1 elem separator = (fmap (:) elem <*> many (separator *> elem))
@@ -159,6 +153,7 @@ data Type
     | Unit
     | User {typeName :: Identifier}
 derive Eq Type
+derive Show Type
 
 typeParser :: Parser Lex Type
 typeParser =
@@ -171,6 +166,7 @@ typeParser =
 data Identifier
     = ID String Position
 derive Eq Identifier
+derive Show Identifier
 
 instance Positioned Identifier where
     position (ID _ pos) = pos
@@ -217,6 +213,7 @@ data Expression
     | Println {expr :: Expression, pos :: Position}
     | Assign {var :: Identifier, expr :: Expression, pos :: Position}
 derive Eq Expression
+derive Show Expression
 
 instance Positioned Expression where
     position (BinOp _ _ _ pos) = pos
@@ -327,87 +324,96 @@ simpleexpression =
             body <- expression
             return $ While predicate body w.position
 
-
-
---module punkt0.parser.AST where
---import punkt0.parser.Grammar
---import Data.List
+class ScalaShow a where
+    scalashow :: a -> String
 
 wrap :: String -> (a -> String) -> a -> String
 wrap prefix f x = prefix ++ "(" ++ f x ++ ")"
 
-joinPair a b = (show a) ++ "," ++ (show b)
+joinPair a b = (scalashow a) ++ "," ++ (scalashow b)
 
-wrapList :: Show a => [a] -> String
+wrapList :: ScalaShow a => [a] -> String
 --Gud vet varför det måste vara ett space här, men ingen annanstans.
-wrapList xs = wrap "List" (joined ", ") (map show xs)
+wrapList xs = wrap "List" (joined ", ") (map scalashow xs)
 wrapOption mx = case mx of
     Nothing = "None"
-    Just x = wrap "Some" show x
+    Just x = wrap "Some" scalashow x
 
-instance Show Program where
-    show (Program classes main _) = wrap "Program" (joined ",") [show main,wrapList classes]
+instance ScalaShow BinOp where
+    scalashow = show
 
-instance Show MainDeclaration where
-    show md = wrap "MainDecl" (joined ",")
-        [show md.name
-        ,show md.extends
+instance ScalaShow Int where
+    scalashow = show
+
+instance ScalaShow Bool where
+    scalashow = show
+
+instance ScalaShow Program where
+    scalashow (Program classes main _) = wrap "Program" (joined ",")
+        [ scalashow main
+        , wrapList classes
+        ]
+
+instance ScalaShow MainDeclaration where
+    scalashow md = wrap "MainDecl" (joined ",")
+        [scalashow md.name
+        ,scalashow md.extends
         ,wrapList md.vars
         ,wrapList md.body
         ]
 
-instance Show ClassDeclaration where
-    show (Class name extends vars methods _)
+instance ScalaShow ClassDeclaration where
+    scalashow (Class name extends vars methods _)
         = wrap "ClassDecl" (joined ",")
-            [ show name
+            [ scalashow name
             , wrapOption extends
             , wrapList vars
             , wrapList methods
             ]
 
-instance Show Identifier where
-    show (ID str _) = wrap "Identifier" id str
+instance ScalaShow Identifier where
+    scalashow (ID str _) = wrap "Identifier" id str
 
-instance Show Expression where
-    show (BinOp e op e' _) = wrap (show op) id $ joinPair e e'
-    show (MethodCall obj method args _) = wrap "MethodCall" (joined ",") $ [show obj, show method, wrapList args]
-    show (LitInt i _) = wrap "IntLit" show i
-    show (LitString str _) = wrap "StringLit" id str
-    show (LitTrue _) = "True()"
-    show (LitFalse _) = "False()"
-    show (LitThis _) = "This()"
-    show (LitNull _) = "Null()"
-    show (New obj _) = wrap "New" show obj
-    show (Not expr _) = wrap "Not" show expr
-    show (If pred when unless _) = wrap "If" (joined ",") [show pred, show when, wrapOption unless]
-    show (While pred body _) = wrap "While" (joined ",") [show pred, show body]
-    show (Block exprs _) = wrap "Block" wrapList exprs
-    show (Println expr _) = wrap "Println" show expr
-    show (Assign name expr _) = wrap "Assign" id $ joinPair name expr
-    show (Identifier i _) = show i
+instance ScalaShow Expression where
+    scalashow (BinOp e op e' _) = wrap (scalashow op) id $ joinPair e e'
+    scalashow (MethodCall obj method args _) = wrap "MethodCall" (joined ",") $ [scalashow obj, scalashow method, wrapList args]
+    scalashow (LitInt i _) = wrap "IntLit" scalashow i
+    scalashow (LitString str _) = wrap "StringLit" id str
+    scalashow (LitTrue _) = "True()"
+    scalashow (LitFalse _) = "False()"
+    scalashow (LitThis _) = "This()"
+    scalashow (LitNull _) = "Null()"
+    scalashow (New obj _) = wrap "New" scalashow obj
+    scalashow (Not expr _) = wrap "Not" scalashow expr
+    scalashow (If pred when unless _) = wrap "If" (joined ",") [scalashow pred, scalashow when, wrapOption unless]
+    scalashow (While pred body _) = wrap "While" (joined ",") [scalashow pred, scalashow body]
+    scalashow (Block exprs _) = wrap "Block" wrapList exprs
+    scalashow (Println expr _) = wrap "Println" scalashow expr
+    scalashow (Assign name expr _) = wrap "Assign" id $ joinPair name expr
+    scalashow (Identifier i _) = scalashow i
 
 
-instance Show MethodDeclaration where
-    show (MethodDeclaration override name args returnType vars exprs _) = wrap "MethodDecl" (joined ",")
-        [ show override
-        , show returnType
-        , show name
-        , wrap "List" (joined ", " . map (wrap "Formal" (uncurry(flip joinPair)))) args
+instance ScalaShow MethodDeclaration where
+    scalashow (MethodDeclaration override name args returnType vars exprs _) = wrap "MethodDecl" (joined ",")
+        [ scalashow override
+        , scalashow returnType
+        , scalashow name
+        , wrap "List" (joined ", " . map (wrap "Formal" $ uncurry . flip $ joinPair)) args
         , wrapList vars
         , wrapList (init exprs)
-        , show (last exprs)
+        , scalashow (last exprs)
         ]
 
-instance Show VarDeclaration where
-    show vd = wrap "VarDecl" (joined ",")
-        [ show vd.varType
-        , show vd.name
-        , show vd.expr
+instance ScalaShow VarDeclaration where
+    scalashow vd = wrap "VarDecl" (joined ",")
+        [ scalashow vd.varType
+        , scalashow vd.name
+        , scalashow vd.expr
         ]
 
-instance Show Type where
-    show Bool = "BooleanType()"
-    show Int = "IntType()"
-    show String = "StringType()"
-    show Unit = "UnitType()"
-    show (User x) = show x
+instance ScalaShow Type where
+    scalashow Bool = "BooleanType()"
+    scalashow Int = "IntType()"
+    scalashow String = "StringType()"
+    scalashow Unit = "UnitType()"
+    scalashow (User x) = scalashow x

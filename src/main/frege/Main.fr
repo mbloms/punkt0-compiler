@@ -1,7 +1,7 @@
 module punkt0.Main where
 import lexer.Lexer (scanTokens, FileIterator, Lexeme(Bad))
 import punkt0.lexer.Tokens (identifier, token, Token())
-import punkt0.parser.Grammar (program, expression, simpleexpression, Program)
+import punkt0.parser.Grammar (program, expression, simpleexpression, Program, scalashow)
 import frege.control.monad.trans.MonadIO
 import punkt0.Context
 import punkt0.Phase
@@ -58,6 +58,6 @@ main args
             parseTree = tokens >>= parsePhase
             phases = do
                 when context.tokens ((runPhase tokens) >>= (runIO $ mapM_ println))
-                when context.ast ((runPhase parseTree) >>= (runIO $ println . show))
+                when context.ast ((runPhase parseTree) >>= (runIO $ println . scalashow))
                 when context.pretty ((runPhase parseTree) >>= (runIO $ println . prettyPrint))
         in phases
