@@ -2,7 +2,7 @@ module punkt0.parser.Pretty where
 import punkt0.parser.Grammar hiding (wrap)
 import Data.List
 
-prettyPrint :: Program -> String
+prettyPrint :: (Pretty a) => a -> String
 prettyPrint x = unwords . map show $ pretty x
 
 class Pretty a where

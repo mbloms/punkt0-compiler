@@ -2,6 +2,9 @@ module parser.Parser where
 
 data Parser token result = Parser { run :: [token] -> [([token], result)]}
 
+parse :: Parser token result -> [token] -> [([token], result)]
+parse parser = parser.run
+
 instance Functor (Parser token) where
     fmap f p = Parser (fmap (fmap f) • p.run)
 

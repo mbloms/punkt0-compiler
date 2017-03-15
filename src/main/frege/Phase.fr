@@ -1,4 +1,4 @@
-module Phase where
+module punkt0.Phase where
 import punkt0.Reporter
 
 data Phase a = Phase {!run :: ReporterT [String] IO a}

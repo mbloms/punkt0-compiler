@@ -1,4 +1,4 @@
-module Context where
+module punkt0.Context where
 data Context = Context
     { !file
     , !outDir :: Maybe String

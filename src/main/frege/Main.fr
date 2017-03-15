@@ -1,10 +1,10 @@
-module Main where
+module punkt0.Main where
 import lexer.Lexer (scanTokens, FileIterator, Lexeme(Bad))
 import punkt0.lexer.Tokens (identifier, token, Token())
 import punkt0.parser.Grammar (program, expression, simpleexpression, Program)
 import frege.control.monad.trans.MonadIO
-import Context
-import Phase
+import punkt0.Context
+import punkt0.Phase
 import punkt0.Reporter
 import Data.Traversable(traverse)
 import punkt0.parser.Pretty (prettyPrint)
