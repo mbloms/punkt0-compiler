@@ -1,4 +1,4 @@
-target
+target/
 project/target
 Functors
 Lexer
@@ -7,3 +7,4 @@ Lexer
 .DS_Store
 src/main/punkt0/long.p0
 src/main/punkt0/longcomment.p0
+*~
