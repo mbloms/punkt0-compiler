@@ -8,12 +8,20 @@ import punkt0.Phase
 import punkt0.Reporter
 import Data.Traversable(traverse)
 import punkt0.parser.Pretty (prettyPrint)
+import punkt0.Positioned
 
 tokens :: String -> [Lexeme Token]
 tokens = (scanTokens token) . FileIterator.from
 
 isBad (Bad _) = true
 isBad _ = false
+
+showErrorAt :: [String] -> Position -> String
+showErrorAt contentLines pos = unlines
+    [ "Error, invalid token at " ++ show pos ++ ":"
+    , contentLines !! (pos.line - 1)
+    , packed $ replicate (pos.col - 1) ' ' ++ ['^']
+    ]
 
 tokenPhase :: Maybe String -> Phase [Lexeme Token]
 tokenPhase file =
@@ -22,9 +30,12 @@ tokenPhase file =
         tokenize :: String -> Accumulate [String] [Lexeme Token]
         tokenize str =
             let
+                contentLines = lines str
                 tokens = (scanTokens token) . FileIterator.from $ str
                 bads = filter isBad tokens
-            in traverse (report1 . show) bads *> pure tokens
+                errors = map (showErrorAt contentLines . _.position) bads
+                reportErrors = traverse report1 errors
+            in reportErrors *> pure tokens
         input :: Maybe String -> IO String
         input file = case file of
             Nothing -> getContents
