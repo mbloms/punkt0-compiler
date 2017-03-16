@@ -3,7 +3,7 @@ module Test where
 import frege.test.QuickCheck
 import lexer.Lexer(scanTokens, FileIterator)
 import parser.Parser(parse)
-import punkt0.lexer.Tokens (token)
+import punkt0.lexer.Tokens (token,atomicliterals,keywords)
 import punkt0.parser.Grammar hiding (token,wrap)
 import punkt0.Positioned (initialPosition, Position)
 import punkt0.parser.Pretty(prettyPrint)
@@ -38,7 +38,6 @@ instance Arbitrary AlphaNum where
             alphanums :: [AlphaNum]
             alphanums = fmap A $ letters ++ digits
 
-keywords = [] -- ["class","extends","def","override","object","new","if","else","while","var","println"]
 
 instance Arbitrary NonEmptyString where
     arbitrary = do
@@ -47,17 +46,29 @@ instance Arbitrary NonEmptyString where
         let chars = map AlphaNum.value alphanums
         let str = packed (c:chars)
         pure $ S str
-    -- keep the first char in the shrunk string
-    shrink (S str) = map (S . packed) . (\(c:cs) -> map (c :) $ shrinkList shrink cs) . unpacked $ str
+    shrink (S str) = map (S . packed) . shrinkChars . unpacked $ str
+        where
+            -- should never happen, but let's make a case for it anyway
+            shrinkChars [] = [['a']]
+            -- keep the first char in the shrunk string
+            shrinkChars (c:cs) = map (c :) $ shrinkList shrink cs
+
+
+reserved :: [String]
+reserved = map fst atomicliterals ++ map fst keywords
 
 instance Arbitrary Identifier where
     arbitrary
         = do
             (S str) <- arbitrary :: Gen NonEmptyString
-            if str `elem` keywords
+            if str `elem` reserved
              then arbitrary -- try again
              else pure $ ID str initialPosition
-    shrink (ID str pos) = [ID str' pos | (S str') <- shrink (S str)]
+    shrink (ID str pos)
+        = [ ID str' pos
+        | (S str') <- shrink (S str)
+        , not $ str' `elem` reserved
+        ]
 
 positiveInt :: Gen Int
 positiveInt = fmap Positive.getPositive positive
@@ -127,7 +138,7 @@ instance Arbitrary MethodDeclaration where
         args <- resize 2 $ listOf arbitrary
         returnType <- arbitrary
         vars <- resize 2 $ listOf arbitrary
-        exprs <- resize 15 $ listOf1 (resize 15 arbitrary)
+        exprs <- resize 10 $ listOf1 (resize 10 arbitrary)
         return $ MethodDeclaration override name args returnType vars exprs initialPosition
     shrink (MethodDeclaration override name args returnType vars exprs pos)
         = [ MethodDeclaration false name [] returnType [] exprs' pos
@@ -174,10 +185,12 @@ instance Arbitrary MainDeclaration where
         = do
         name <- arbitrary :: Gen Identifier
         extends <- arbitrary :: Gen Identifier
-        body <- listOf1 arbitrary
+        body <- resize 5 $ listOf1 arbitrary
         return $ Main name extends [] body initialPosition
     shrink (Main name extends vars body pos)
-        = [Main name extends [] body' pos | (NonEmpty body') <- shrink (NonEmpty body)]
+        = [ Main name extends [] body' pos
+        | (NonEmpty body') <- shrink (NonEmpty body)
+        ]
         ++ [Main name extends vars body' pos
         | vars <- shrink vars
         , (NonEmpty body') <- shrink (NonEmpty body)
@@ -230,7 +243,6 @@ prop_pretty_method ast =
 
 prop_pretty_program :: Program -> Bool
 prop_pretty_program ast
--- | traceLn $ show ast = undefined
  | otherwise =
     let
         code = prettyPrint ast
