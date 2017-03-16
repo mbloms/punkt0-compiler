@@ -124,7 +124,7 @@ instance Arbitrary MethodDeclaration where
         args <- resize 2 $ listOf arbitrary
         returnType <- arbitrary
         vars <- resize 2 $ listOf arbitrary
-        exprs <- resize 5 $ listOf1 (resize 10 arbitrary)
+        exprs <- resize 5 $ listOf1 (resize 8 arbitrary)
         return $ MethodDeclaration override name args returnType vars exprs initialPosition
     shrink (MethodDeclaration override name args returnType vars exprs pos)
         = [ MethodDeclaration override name args' returnType vars' exprs' pos
@@ -164,7 +164,7 @@ instance Arbitrary MainDeclaration where
         = do
         name <- arbitrary :: Gen Identifier
         extends <- arbitrary :: Gen Identifier
-        (NonEmpty body) <- (resize 15 arbitrary :: Gen (NonEmptyList Expression))
+        (NonEmpty body) <- (resize 8 arbitrary :: Gen (NonEmptyList Expression))
         return $ Main name extends [] body initialPosition
     shrink (Main name extends vars body pos)
         = [Main name extends vars body' pos | (NonEmpty body') <- shrink (NonEmpty body)]
