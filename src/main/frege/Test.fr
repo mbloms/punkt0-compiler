@@ -22,6 +22,7 @@ instance Arbitrary StringLiteral where
             -- we can't have quotation marks or newlines in string literals
             -- because there is no escaping
             strChar = arbitrary `suchThat` (\c -> and [c /= '\n', c /= '"', isPrint c])
+    shrink (SL "") = []
     shrink (SL str) = [SL ""]
 
 data Letter = L {!value :: Char}
@@ -111,21 +112,21 @@ instance Arbitrary Expression where
             str = fmap StringLiteral.value (arbitrary :: Gen StringLiteral)
             pos :: Gen Position
             pos = pure initialPosition
+    shrink (Identifier i pos) = []
     shrink (LitTrue pos) = []
     shrink (LitFalse pos) = []
     shrink (New i pos) = []
     shrink (LitThis pos) = []
     shrink (LitNull _) = []
-    shrink (LitInt i pos) = [LitInt i' pos | (Positive i') <- shrink (Positive i)]
-    shrink (LitString s pos) = [LitString s' pos | (SL s') <- shrink (SL s)]
-    shrink (Identifier i pos) = [Identifier i' pos | i' <- shrink i]
+    shrink (LitInt i pos) = []
+    shrink (LitString s pos) = []
     shrink (BinOp left op right pos)
         = [left, right] ++ [BinOp e op e' pos | e <- shrink left, e' <- shrink right]
     shrink (MethodCall e i es pos)
         = e : es ++ [MethodCall obj i args pos | obj <- shrink e, args <- shrink es]
     shrink (Not e pos) =  e : [Not e' pos | e' <- shrink e]
     shrink (Block [] _) = []
-    shrink (Block (e:es) pos) = [Block es' pos | (NonEmpty es') <- shrink (NonEmpty (e:es))] ++ (concat $ shrinkList shrink (e:es))
+    shrink (Block (e:es) pos) = e : es ++ [Block es' pos | (NonEmpty es') <- shrink (NonEmpty es)]
     shrink (Println e pos) = e : [Println p pos | p <- shrink e]
     shrink (Assign i e pos) = e : Identifier i pos : [Assign i e' pos | e' <- shrink e]
     shrink (While e e' pos) = e : e' : [While p b pos | p <- shrink e, b <- shrink e']
