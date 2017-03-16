@@ -1,0 +1,12 @@
+
+class Nothing extends Any {
+	
+}
+
+
+object Main extends Any {
+    if(Java.isBad())
+        println("Java suger.")
+    else if(!Java.isBad() && 1+2<3)
+        println("Impossibruuuuuuuuuuuu")
+}

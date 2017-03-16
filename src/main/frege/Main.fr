@@ -1,0 +1,74 @@
+module punkt0.Main where
+import lexer.Lexer (scanTokens, FileIterator, Lexeme(Bad))
+import punkt0.lexer.Tokens (identifier, token, Token())
+import punkt0.parser.Grammar (program, expression, simpleexpression, Program, scalashow)
+import frege.control.monad.trans.MonadIO
+import punkt0.Context
+import punkt0.Phase
+import punkt0.Reporter
+import Data.Traversable(traverse)
+import punkt0.parser.Pretty (prettyPrint)
+import punkt0.Positioned
+
+tokens :: String -> [Lexeme Token]
+tokens = (scanTokens token) . FileIterator.from
+
+isBad (Bad _) = true
+isBad _ = false
+
+showErrorAt :: [String] -> Position -> String
+showErrorAt contentLines pos = unlines
+    [ "Error, invalid token at " ++ show pos ++ ":"
+    , contentLines !! (pos.line - 1)
+    , packed $ replicate (pos.col - 1) ' ' ++ ['^']
+    ]
+
+tokenPhase :: Maybe String -> Phase [Lexeme Token]
+tokenPhase file =
+    phase $ fmap tokenize (input file)
+    where
+        tokenize :: String -> Accumulate [String] [Lexeme Token]
+        tokenize str =
+            let
+                contentLines = lines str
+                tokens = (scanTokens token) . FileIterator.from $ str
+                bads = filter isBad tokens
+                errors = map (showErrorAt contentLines . _.position) bads
+                reportErrors = traverse report1 errors
+            in reportErrors *> pure tokens
+        input :: Maybe String -> IO String
+        input file = case file of
+            Nothing -> getContents
+            (Just name) -> readFile name
+
+parsePhase :: [Lexeme Token] -> Phase Program
+parsePhase tokens =
+    let result = program.run $ tokens
+    in phase $ pure $ case result of
+        [] = report1 "No possible parse"
+        [([],p)] = pure p
+        [(t:_, _)] = report1 $ "unexpected" ++ show t
+        _ = report1 "Ambiguous parse"
+
+displayHelp :: IO ()
+displayHelp = print "Well. Don't ask me."
+
+
+crashAndBurn :: Show e => [e] -> IO ()
+crashAndBurn errors = mapM_ println errors >> System.exit 1
+
+runIO :: Show e => (a -> IO ()) -> ([e] | a) -> IO ()
+runIO ok result = either crashAndBurn ok result
+
+main :: [String] -> IO ()
+main args
+    | otherwise =
+        let
+            context = parseFlags args defaultContext
+            tokens = tokenPhase context.file
+            parseTree = tokens >>= parsePhase
+            phases = do
+                when context.tokens ((runPhase tokens) >>= (runIO $ mapM_ println))
+                when context.ast ((runPhase parseTree) >>= (runIO $ println . scalashow))
+                when context.pretty ((runPhase parseTree) >>= (runIO $ println . prettyPrint))
+        in phases

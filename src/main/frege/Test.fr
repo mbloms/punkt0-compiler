@@ -1,0 +1,228 @@
+module Test where
+
+import frege.test.QuickCheck
+import lexer.Lexer(scanTokens, FileIterator)
+import parser.Parser(parse)
+import punkt0.lexer.Tokens (token)
+import punkt0.parser.Grammar hiding (token,wrap)
+import punkt0.Positioned (initialPosition, Position)
+import punkt0.parser.Pretty(prettyPrint)
+import Data.Char(isPrint)
+
+data NonEmptyString = S { !getNonEmpty :: String}
+
+letters = unpacked "abcdefgijklmnopqrstuvxyzåäöπα"
+digits = unpacked "012345678"
+
+data StringLiteral = SL {!value :: String}
+instance Arbitrary StringLiteral where
+    arbitrary = fmap (SL . packed) $ listOf strChar
+        where
+            -- assume we only have printable strings
+            -- we can't have quotation marks or newlines in string literals
+            -- because there is no escaping
+            strChar = arbitrary `suchThat` (\c -> and [c /= '\n', c /= '"', isPrint c])
+
+data Letter = L {!value :: Char}
+instance Arbitrary Letter where
+    arbitrary = oneof (map pure ls)
+        where
+            ls :: [Letter]
+            ls = fmap L letters
+
+data AlphaNum = A {!value :: Char}
+instance Arbitrary AlphaNum where
+    arbitrary = oneof (map pure alphanums)
+        where
+            alphanums :: [AlphaNum]
+            alphanums = fmap A $ letters ++ digits
+
+keywords = ["class","extends","def","override","object","new","if","else","while","var","println"]
+
+instance Arbitrary NonEmptyString where
+    arbitrary = do
+        (L c) <- arbitrary :: Gen Letter
+        alphanums <- listOf (arbitrary :: Gen AlphaNum)
+        let chars = map AlphaNum.value alphanums
+        let str = packed (c:chars)
+        pure $ S str
+
+instance Arbitrary Identifier where
+    arbitrary
+        = do
+            (S str) <- arbitrary :: Gen NonEmptyString
+            if str `elem` keywords
+             then arbitrary -- try again
+             else pure $ ID str initialPosition
+
+positiveInt :: Gen Int
+positiveInt = fmap Positive.getPositive positive
+    where
+        positive = arbitrary :: Gen (Positive Int)
+
+instance Arbitrary BinOp where
+    arbitrary = oneof $ fmap pure [And, Or, Equals, LessThan, Plus, Minus, Times, Div]
+
+instance Arbitrary Expression where
+    arbitrary = sized arbExpr
+        where
+            simples =
+                [ pure LitTrue <*> pos
+                , pure LitFalse <*> pos
+                , fmap LitInt positiveInt <*> pos
+                , fmap LitString str <*> pos
+                , fmap LitThis pos
+                , fmap LitNull pos
+                , fmap New identifier <*> pos
+                , fmap Identifier identifier <*> pos
+                ]
+            arbExpr 0 = oneof $ simples
+            arbExpr n = oneof $ simples ++
+                [ fmap BinOp expression <*> op <*> expression <*> pos
+                , fmap MethodCall expression <*> identifier <*> (listOf expression) <*> pos
+                , fmap Not expression <*> pos
+                , fmap Block (listOf1 expression) <*> pos
+                , fmap Println expression <*> pos
+                , fmap Assign identifier <*> expression <*> pos
+                , While <$> expression <*> expression <*> pos
+                , If <$> expression <*> expression <*> maybeExpression <*> pos
+                ]
+                where
+                    expression = (arbExpr (n - 1)) :: Gen Expression
+                    maybeExpression = oneof $ fmap Just expression : [pure Nothing]
+            identifier = arbitrary :: Gen Identifier
+            op = arbitrary :: Gen BinOp
+            str = fmap StringLiteral.value (arbitrary :: Gen StringLiteral)
+            pos :: Gen Position
+            pos = pure initialPosition
+    shrink (LitInt i pos) = LitNull pos : [LitInt i' pos | i' <- shrink i]
+    shrink (LitTrue pos) = LitNull pos : [LitFalse pos]
+    shrink (LitFalse pos) = [LitNull pos]
+    shrink (LitString s pos) = LitNull pos : [LitString s' pos | s' <- shrink s]
+    shrink (New i pos) = LitNull pos : [Identifier i pos]
+    shrink (Identifier _ pos) = [LitNull pos]
+    shrink (LitThis pos) = [LitNull pos]
+    shrink (LitNull _) = []
+    shrink (BinOp left op right pos)
+        = LitNull pos : [left, right] ++ [BinOp e op e' pos | e <- shrink left, e' <- shrink right] ++ [left,right]
+    shrink (MethodCall e i es pos)
+        = LitNull pos : e : es ++ [MethodCall obj i args pos | obj <- shrink e, args <- shrink es]
+    shrink (Not e pos) = LitNull pos : e : [Not e' pos | e' <- shrink e]
+    shrink (Block es pos) = LitNull pos : es ++ [Block es' pos | (NonEmpty es') <- shrink (NonEmpty es)]
+    shrink (Println e pos) = LitNull pos : e : [Println p pos | p <- shrink e]
+    shrink (Assign i e pos) = LitNull pos : e : [Assign i e' pos | e' <- shrink e]
+    shrink (While e e' pos) = LitNull pos : e : e' : [While p b pos | p <- shrink e, b <- shrink e']
+    shrink (If e e' elseBody pos)
+        = LitNull pos : e : e' :
+        [If p b el pos | p <- shrink e, b <- shrink e', el <- shrink elseBody]
+
+instance Arbitrary MethodDeclaration where
+    arbitrary
+        = do
+        override <- arbitrary
+        name <- arbitrary
+        args <- resize 2 $ listOf arbitrary
+        returnType <- arbitrary
+        vars <- resize 2 $ listOf arbitrary
+        exprs <- resize 5 $ listOf1 (resize 8 arbitrary)
+        return $ MethodDeclaration override name args returnType vars exprs initialPosition
+    shrink (MethodDeclaration override name args returnType vars exprs pos)
+        = [ MethodDeclaration override name args' returnType vars' exprs' pos
+          | args' <- shrink args
+          , vars' <- shrink vars
+          , (NonEmpty exprs') <- shrink (NonEmpty exprs)
+          ]
+
+instance Arbitrary Type where
+    arbitrary
+        = do
+        oneof $ (fmap User arbitrary) : (map pure [Bool, Int, String, Unit])
+
+instance Arbitrary VarDeclaration where
+    arbitrary
+        = do
+        name <- arbitrary
+        varType <- arbitrary
+        expr <- resize 10 arbitrary
+        return $ Var name varType expr initialPosition
+    shrink (Var name varType expr pos)
+        = [Var name varType expr' pos | expr' <- shrink expr]
+
+instance Arbitrary ClassDeclaration where
+    arbitrary
+        = do
+        name <- arbitrary
+        extends <- arbitrary
+        vars <- resize 10 $ listOf arbitrary
+        methods <- resize 5 $ listOf arbitrary
+        return $ Class name extends vars methods initialPosition
+    shrink (Class name extends vars methods pos)
+        = [Class name extends vars' methods' pos | vars' <- shrink vars, methods' <- shrink methods]
+
+instance Arbitrary MainDeclaration where
+    arbitrary
+        = do
+        name <- arbitrary :: Gen Identifier
+        extends <- arbitrary :: Gen Identifier
+        (NonEmpty body) <- (resize 8 arbitrary :: Gen (NonEmptyList Expression))
+        return $ Main name extends [] body initialPosition
+    shrink (Main name extends vars body pos)
+        = [Main name extends vars body' pos | (NonEmpty body') <- shrink (NonEmpty body)]
+
+instance Arbitrary Program where
+    arbitrary
+        = do
+            main <- arbitrary :: Gen MainDeclaration
+            classes <- resize 8 arbitrary
+            return $ Program classes main initialPosition
+    shrink (Program main classes pos)
+        = [Program main' classes' pos | main' <- shrink main, classes' <- shrink classes]
+
+parseCode code parser =
+    let
+        tokens = (scanTokens token) . FileIterator.from $ code
+        parsed = parse parser tokens
+    in case parsed of
+        [([], parseTree)] -> Just parseTree
+        _ -> Nothing
+
+prop_pretty_expr :: Expression -> Bool
+prop_pretty_expr ast =
+    let
+        code = prettyPrint ast
+        parseTree = parseCode code (expression <* tokenEOF)
+    in if Just ast == parseTree
+        then true
+        else if traceLn code
+            then undefined
+            else false
+
+prop_pretty_method :: MethodDeclaration -> Bool
+prop_pretty_method ast =
+    let
+        code = prettyPrint ast
+        parseTree = parseCode code (methodDeclaration <* tokenEOF)
+    in if Just ast == parseTree
+        then true
+        else if traceLn $ code ++ (unlines [show ast, "\n\t/=\n", show parseTree])
+            then undefined
+            else false
+
+prop_pretty_program :: Program -> Bool
+prop_pretty_program ast
+-- | traceLn $ show ast = undefined
+ | otherwise =
+    let
+        code = prettyPrint ast
+        parseTree = parseCode code program
+    in if Just ast == parseTree
+        then true
+        else if traceLn $ code ++ (unlines [show ast, "\n\t/=\n", show parseTree])
+            then undefined
+            else false
+
+main = do
+    quickCheck prop_pretty_method
+    quickCheck (forAll (resize 7 arbitrary) prop_pretty_expr)
+    quickCheck prop_pretty_program
+

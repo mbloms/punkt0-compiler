@@ -1,0 +1,419 @@
+module punkt0.parser.Grammar where
+import parser.Parser
+import punkt0.Positioned
+import lexer.Lexer(Lexeme())
+import punkt0.lexer.Tokens as Tokens(Token(), getIdentifierString, getLiteral, isLiteral)
+
+type Lex = Lexeme Token
+
+literal = satisfy $ \lex ->
+    case lex of
+        Lexeme.Ok t _ = isLiteral t
+        _ = false
+
+tokenIdentifier = satisfy $ \lex ->
+    case lex of
+        Lexeme.Ok (Tokens.Identifier _) _ = true
+        _ = false
+
+token t = symbol (Lexeme.Ok t undefined)
+
+tokenOp :: Tokens.Operator -> Parser Lex Lex
+tokenOp t = token (Tokens.Op t)
+
+tokenLit :: Tokens.Literal -> Parser Lex Lex
+tokenLit t = token (Tokens.Literal t)
+
+tokenKey :: Tokens.Keyword -> Parser Lex Lex
+tokenKey t = token (Tokens.Keyword t)
+
+tokenType :: Tokens.Type -> Parser Lex Lex
+tokenType t = token (Tokens.Type t)
+
+tokenEOF = symbol (Lexeme.EOF undefined)
+
+data Program = Program [ClassDeclaration] MainDeclaration Position
+derive Eq Program
+derive Show Program
+
+toProgram [] main = Program [] main main.position
+toProgram (c:rest) main = Program (c:rest) main c.position
+
+program :: Parser Lex Program
+program = fmap toProgram (many classDeclaration) <*> mainDeclaration <* tokenEOF
+
+data ClassDeclaration = Class
+    { name :: Identifier
+    , extends :: (Maybe Identifier)
+    , vars :: [VarDeclaration]
+    , methods :: [MethodDeclaration]
+    , pos :: Position
+    }
+derive Eq ClassDeclaration
+derive Show ClassDeclaration
+
+instance Positioned ClassDeclaration where
+    position Class{pos} = pos
+
+wrapping start mid after = start *> mid <* after
+braces mid = wrapping (token Tokens.LBrace) mid (token Tokens.RBrace)
+parens mid = wrapping (token Tokens.LParen) mid (token Token.RParen)
+
+classDeclaration :: Parser Lex ClassDeclaration
+classDeclaration = do
+    cls <- tokenKey Tokens.Class
+    name <- identifier
+    extends <- optional (tokenKey Tokens.Extends >> identifier)
+    (vars, methods) <- braces $ fmap (,) (many varDeclaration) <*> (many methodDeclaration)
+    return $ Class name extends vars methods cls.position
+
+data MainDeclaration = Main
+    { name :: Identifier
+    , extends :: Identifier
+    , vars :: [VarDeclaration]
+    , body :: [Expression]
+    , pos :: Position
+    }
+derive Eq MainDeclaration
+derive Show MainDeclaration
+
+instance Positioned MainDeclaration where
+    position Main{pos} = pos
+
+mainDeclaration :: Parser Lex MainDeclaration
+mainDeclaration = do
+    obj <- tokenKey Tokens.Object
+    name <- identifier
+    extends <- tokenKey Tokens.Extends >> identifier
+    braces $ do
+        vars <- many varDeclaration
+        body <- list1 expression (token Tokens.SemiColon)
+        return $! Main name extends vars body obj.position
+
+data VarDeclaration = Var
+    { name :: Identifier
+    , varType :: Type
+    , expr :: Expression
+    , pos :: Position
+    }
+derive Eq VarDeclaration
+derive Show VarDeclaration
+
+varDeclaration :: Parser Lex VarDeclaration
+varDeclaration = do
+    tokenKey Tokens.Var
+    name <- identifier
+    token Tokens.Colon
+    t <- typeParser
+    tokenOp Tokens.Assign
+    expr <- expression
+    token Tokens.SemiColon
+    return $ Var name t expr name.position
+
+data MethodDeclaration = MethodDeclaration
+    { override :: Bool
+    , name :: Identifier
+    , args :: [(Identifier, Type)]
+    , returnType :: Type
+    , vars :: [VarDeclaration]
+    , exprs :: [Expression]
+    , pos :: Position
+    }
+derive Eq MethodDeclaration
+derive Show MethodDeclaration
+
+list1 :: Parser t a -> Parser t b -> Parser t [a]
+list1 elem separator = (fmap (:) elem <*> many (separator *> elem))
+list elem separator = list1 elem separator <|> pure []
+
+methodDeclaration :: Parser Lex MethodDeclaration
+methodDeclaration = do
+        override <- (fmap isJust . optional . tokenKey) Tokens.Override
+        def <- tokenKey Tokens.Def
+        name <- identifier
+        args <- parens parseArgs
+        returnType <- token Tokens.Colon *> typeParser
+        tokenOp Tokens.Assign
+        (vars,exprs) <- braces
+            $ fmap (,) (many varDeclaration)
+            <*> (list1 expression (token Tokens.SemiColon))
+        return $ MethodDeclaration override name args returnType vars exprs def.position
+    where
+        parseArg = do
+            arg <- identifier
+            token Tokens.Colon
+            t <- typeParser
+            return (arg, t)
+        parseArgs = list parseArg (token Tokens.Comma)
+
+data Type
+    = Bool
+    | Int
+    | String
+    | Unit
+    | User {typeName :: Identifier}
+derive Eq Type
+derive Show Type
+
+typeParser :: Parser Lex Type
+typeParser =
+    (tokenType Tokens.BooleanType *> pure Bool)
+    <|> (tokenType Tokens.IntType *> pure Int)
+    <|> (tokenType Tokens.StringType *> pure String)
+    <|> (tokenType Tokens.UnitType *> pure Unit)
+    <|> (fmap User identifier)
+
+data Identifier
+    = ID String Position
+derive Eq Identifier
+derive Show Identifier
+
+instance Positioned Identifier where
+    position (ID _ pos) = pos
+
+identifier :: Parser Lex Identifier
+identifier =
+    fmap toIdentifier tokenIdentifier
+    where
+        toIdentifier lex = case lex of
+            (Lexeme.Ok (Tokens.Identifier str) pos) = ID str pos
+            _ = error "Internal parse error"
+
+data BinOp
+    = And
+    | Or
+    | Equals
+    | LessThan
+    | Plus
+    | Minus
+    | Times
+    | Div
+derive Show BinOp
+derive Eq BinOp
+
+data Expression
+    = BinOp {lhs :: Expression, op :: BinOp, rhs :: Expression, pos :: Position}
+    | MethodCall Expression Identifier [Expression] Position
+    | LitInt Int Position
+    | LitString String Position
+    | LitTrue Position
+    | LitFalse Position
+    | Identifier {id :: Identifier, pos :: Position}
+    | LitThis Position
+    | LitNull Position
+    | New {obj ::Identifier, pos :: Position}
+    | Not {expr :: Expression, pos :: Position}
+    | Block [Expression] Position
+    | If { predicate :: Expression
+         , body :: Expression
+         , elseBody :: (Maybe Expression)
+         , pos :: Position
+         }
+    | While {predicate :: Expression, body :: Expression, pos :: Position}
+    | Println {expr :: Expression, pos :: Position}
+    | Assign {var :: Identifier, expr :: Expression, pos :: Position}
+derive Eq Expression
+derive Show Expression
+
+instance Positioned Expression where
+    position (BinOp _ _ _ pos) = pos
+    position (MethodCall _ _ _ pos) = pos
+    position (LitInt _ pos) = pos
+    position (LitString _ pos) = pos
+    position (LitTrue pos) = pos
+    position (LitFalse pos) = pos
+    position (Identifier _ pos) = pos
+    position (LitThis pos) = pos
+    position (LitNull pos) = pos
+    position (New _ pos) = pos
+    position (Not _ pos) = pos
+    position (Block _ pos) = pos
+    position (If _ _ _ pos) = pos
+    position (While _ _ pos) = pos
+    position (Println _ pos) = pos
+    position (Assign _ _ pos) = pos
+
+
+binOp :: Parser Lex Expression -> Parser Lex BinOp -> Parser Lex Expression
+binOp stronger op = do
+        e <- stronger;
+        results <- many $ fmap (,) op <*> stronger
+        return $! buildOp e results
+    where
+        buildOp e [] = e
+        buildOp e ((operator, e2):rest) = buildOp (BinOp e operator e2 e.position) rest
+
+expression = orative
+
+orative :: Parser Lex Expression
+orative = binOp andative (tokenOp Tokens.Or *> pure Or)
+
+andative :: Parser Lex Expression
+andative = binOp comparative (tokenOp Tokens.And *> pure And)
+
+comparative :: Parser Lex Expression
+comparative = binOp additive op
+    where
+        op = (tokenOp Tokens.Equals *> pure Equals)
+            <|> (tokenOp Tokens.LessThan *> pure LessThan)
+
+additive :: Parser Lex Expression
+additive = binOp multiplicative op
+    where
+        op = (tokenOp Tokens.Plus *> pure Plus)
+            <|> (tokenOp Tokens.Minus *> pure Minus)
+
+multiplicative = binOp methodCall op
+    where
+        op = (tokenOp Tokens.Times *> pure Times)
+            <|> (tokenOp Tokens.Div *> pure Div)
+
+literalToExpression :: Lex -> Expression
+literalToExpression (Lexeme.Ok (Tokens.Literal (Tokens.LitInt i)) pos) = LitInt i pos
+literalToExpression (Lexeme.Ok (Tokens.Literal (Tokens.LitString s)) pos) = LitString s pos
+literalToExpression (Lexeme.Ok (Tokens.Literal Tokens.LitTrue) pos) = LitTrue pos
+literalToExpression (Lexeme.Ok (Tokens.Literal Tokens.LitFalse) pos) = LitFalse pos
+literalToExpression (Lexeme.Ok (Tokens.Literal Tokens.LitNull) pos) = LitNull pos
+literalToExpression (Lexeme.Ok (Tokens.Literal Tokens.LitThis) pos) = LitThis pos
+literalToExpression _ = error "Internal parse error"
+
+methodCall :: Parser Lex Expression
+methodCall = do
+    obj <- simpleexpression
+    calls <- many $ do
+        token Tokens.Dot
+        method <- identifier
+        args <- parens $ list expression (token Tokens.Comma)
+        return (method,args)
+    return $ buildCall obj calls
+    where
+        buildCall obj [] = obj
+        buildCall obj ((method,args):rest) = buildCall (MethodCall obj method args obj.position) rest
+
+posFirst first rest = do
+    f <- first
+    v <- rest
+    return $ v f.position
+
+simpleexpression =
+    (parens expression)
+    <|> (posFirst (token Tokens.LBrace) $ fmap Block $ list expression (token Tokens.SemiColon) <* token Tokens.RBrace)
+    <|> (fmap (literalToExpression) literal)
+    <|> (posFirst (tokenKey Tokens.New) $ fmap New $ identifier <* parens (pure ()))
+    <|> (posFirst (token Tokens.Bang) $ fmap Not methodCall)
+    <|> (posFirst (tokenKey Tokens.Println) $ fmap Println $ parens expression)
+    <|> ifCase
+    <|> whileLoop
+    <|> assign
+    <|> fmap (\id -> Identifier id id.position) identifier
+    where
+        assign = do
+            name <- identifier
+            tokenOp Tokens.Assign
+            expr <- expression
+            return $ Assign name expr name.position
+        ifCase = do
+            i <- tokenKey Tokens.If
+            predicate <- parens expression
+            body <- expression
+            elseBody <- optional (tokenKey Tokens.Else *> expression)
+            return $ If predicate body elseBody i.position
+        whileLoop = do
+            w <- tokenKey Tokens.While
+            predicate <- parens expression
+            body <- expression
+            return $ While predicate body w.position
+
+class ScalaShow a where
+    scalashow :: a -> String
+
+wrap :: String -> (a -> String) -> a -> String
+wrap prefix f x = prefix ++ "(" ++ f x ++ ")"
+
+joinPair a b = (scalashow a) ++ "," ++ (scalashow b)
+
+wrapList :: ScalaShow a => [a] -> String
+--Gud vet varför det måste vara ett space här, men ingen annanstans.
+wrapList xs = wrap "List" (joined ", ") (map scalashow xs)
+wrapOption mx = case mx of
+    Nothing = "None"
+    Just x = wrap "Some" scalashow x
+
+instance ScalaShow BinOp where
+    scalashow = show
+
+instance ScalaShow Int where
+    scalashow = show
+
+instance ScalaShow Bool where
+    scalashow = show
+
+instance ScalaShow Program where
+    scalashow (Program classes main _) = wrap "Program" (joined ",")
+        [ scalashow main
+        , wrapList classes
+        ]
+
+instance ScalaShow MainDeclaration where
+    scalashow md = wrap "MainDecl" (joined ",")
+        [scalashow md.name
+        ,scalashow md.extends
+        ,wrapList md.vars
+        ,wrapList md.body
+        ]
+
+instance ScalaShow ClassDeclaration where
+    scalashow (Class name extends vars methods _)
+        = wrap "ClassDecl" (joined ",")
+            [ scalashow name
+            , wrapOption extends
+            , wrapList vars
+            , wrapList methods
+            ]
+
+instance ScalaShow Identifier where
+    scalashow (ID str _) = wrap "Identifier" id str
+
+instance ScalaShow Expression where
+    scalashow (BinOp e op e' _) = wrap (scalashow op) id $ joinPair e e'
+    scalashow (MethodCall obj method args _) = wrap "MethodCall" (joined ",") $ [scalashow obj, scalashow method, wrapList args]
+    scalashow (LitInt i _) = wrap "IntLit" scalashow i
+    scalashow (LitString str _) = wrap "StringLit" id str
+    scalashow (LitTrue _) = "True()"
+    scalashow (LitFalse _) = "False()"
+    scalashow (LitThis _) = "This()"
+    scalashow (LitNull _) = "Null()"
+    scalashow (New obj _) = wrap "New" scalashow obj
+    scalashow (Not expr _) = wrap "Not" scalashow expr
+    scalashow (If pred when unless _) = wrap "If" (joined ",") [scalashow pred, scalashow when, wrapOption unless]
+    scalashow (While pred body _) = wrap "While" (joined ",") [scalashow pred, scalashow body]
+    scalashow (Block exprs _) = wrap "Block" wrapList exprs
+    scalashow (Println expr _) = wrap "Println" scalashow expr
+    scalashow (Assign name expr _) = wrap "Assign" id $ joinPair name expr
+    scalashow (Identifier i _) = scalashow i
+
+
+instance ScalaShow MethodDeclaration where
+    scalashow (MethodDeclaration override name args returnType vars exprs _) = wrap "MethodDecl" (joined ",")
+        [ scalashow override
+        , scalashow returnType
+        , scalashow name
+        , wrap "List" (joined ", " . map (wrap "Formal" $ uncurry . flip $ joinPair)) args
+        , wrapList vars
+        , wrapList (init exprs)
+        , scalashow (last exprs)
+        ]
+
+instance ScalaShow VarDeclaration where
+    scalashow vd = wrap "VarDecl" (joined ",")
+        [ scalashow vd.varType
+        , scalashow vd.name
+        , scalashow vd.expr
+        ]
+
+instance ScalaShow Type where
+    scalashow Bool = "BooleanType()"
+    scalashow Int = "IntType()"
+    scalashow String = "StringType()"
+    scalashow Unit = "UnitType()"
+    scalashow (User x) = scalashow x

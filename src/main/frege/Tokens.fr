@@ -1,0 +1,191 @@
+module punkt0.lexer.Tokens where
+import lexer.Lexer
+import Data.HashMap
+
+data Type
+    = UnitType
+    | BooleanType
+    | IntType
+    | StringType
+derive Eq Type
+
+instance Show Type where
+    show UnitType = "UNIT"
+    show BooleanType = "BOOLEAN"
+    show IntType = "INT"
+    show StringType = "STRING"
+
+types :: [(String, Type)]
+types = [("String", StringType), ("Unit", UnitType), ("Int", IntType), ("Boolean", BooleanType)]
+
+data Literal
+    = LitString String
+    | LitInt Int
+    | LitTrue
+    | LitFalse
+    | LitNull
+    | LitThis
+derive Eq Literal
+
+wrap :: String -> String -> String
+wrap a b = a ++ "(" ++ b ++ ")"
+
+instance Show Literal where
+    show (LitString str) = wrap "STR" str
+    show (LitInt i) = wrap "INT" (show i)
+    show (LitTrue) = "TRUE"
+    show (LitFalse) = "FALSE"
+    show (LitNull) = "NULL"
+    show (LitThis) = "THIS"
+
+atomicliterals :: [(String, Literal)]
+atomicliterals = [("true", LitTrue), ("false", LitFalse), ("null", LitNull), ("this", LitThis)]
+
+between before after mid = before *> mid <* after
+
+-- match ", then match any char sequence (not '"'), then match " and return the char sequence
+stringliteral = between (char '"') (char '"') $ fmap (LitString . packed) (many (satisfy (\c -> c /= '"' && c /= '\n')))
+
+oneToNine = satisfy (\c -> c `elem` ['1','2','3','4','5','6','7','8','9'])
+single x = [x]
+singleZero = (fmap single $ char '0')
+
+intliteral = fmap (LitInt . atoi . packed) $
+    (fmap (:) oneToNine <*> many digit) -- no leading zeros
+    <|> singleZero
+
+basicliteral = stringliteral <|> intliteral
+
+data Operator = Plus
+    | Minus
+    | Times
+    | Div
+    | And
+    | Or
+    | Equals
+    | Assign
+    | LessThan
+
+derive Show Operator
+derive Eq Operator
+
+
+commentordiv :: Lexer Operator
+commentordiv = (char '*' *> (insidecomment *> ignore (pure ()))
+    <|> (char '/') *> (many (satisfy (/= '\n')) *> ignore (pure ())))
+    <|> (pure Div)
+    where
+        insidecomment = many (satisfy (/= '*')) *> char '*' *> (char '/' <|> insidecomment)
+
+operator
+    = (char '+' *> pure Plus)
+    <|> (char '-' *> pure Minus)
+    <|> (char '*' *> pure Times)
+    <|> (string "&&" *> pure And)
+    <|> (string "||" *> pure Or)
+    <|> (char '=' *> (char '=' *> pure Equals <|> pure Assign))
+    <|> (char '<' *> pure LessThan)
+    <|> (char '/' *> commentordiv)
+
+data Keyword = Class
+    | Extends
+    | Def
+    | Override
+    | Object
+    | New
+    | If
+    | Else
+    | While
+    | Var
+    | Println
+derive Show Keyword
+derive Eq Keyword
+
+keywords :: [(String, Keyword)]
+keywords = [ ("class", Class)
+    , ("extends", Extends)
+    , ("def", Def)
+    , ("override", Override)
+    , ("object", Object)
+    , ("new", New)
+    , ("if", If)
+    , ("else", Else)
+    , ("while", While)
+    , ("var", Var)
+    , ("println", Println)]
+
+data Token
+    = Op Operator
+    | Type Type
+    | Keyword Keyword
+    | Literal Literal
+    | Identifier String
+    | LParen
+    | RParen
+    | LBrace
+    | RBrace
+    | Comma
+    | Colon
+    | SemiColon
+    | Dot
+    | Bang
+derive Eq Token
+
+instance Show Token where
+    show (Op Assign) = "EQSIGN"
+    show (Op op) = (show op).toUpperCase
+    show (Type t) = show t
+    show (Keyword k) = (show k).toUpperCase
+    show (Literal lit) = show lit
+    show (Identifier str) = "ID("++str++")"
+    show LParen = "LPAREN"
+    show RParen = "RPAREN"
+    show LBrace = "LBRACE"
+    show RBrace = "RBRACE"
+    show Comma = "COMMA"
+    show Colon = "COLON"
+    show SemiColon = "SEMICOLON"
+    show Dot = "DOT"
+    show Bang = "BANG"
+
+mapsnd f = map (\(x, v) -> (x, f v))
+
+atomictokens :: HashMap String Token
+atomictokens = fromList (mapsnd Type types ++ mapsnd Keyword keywords ++ mapsnd Literal atomicliterals)
+
+checkstringtype :: String -> Token
+checkstringtype str = case lookup str atomictokens of
+    Nothing -> Identifier str
+    Just atomic -> atomic
+
+identifier = fmap (checkstringtype . packed) $ fmap (:) letter <*> many (alphanumeric <|> char '_')
+
+whitespace = ignore $ some space
+
+getIdentifierString :: Token -> Maybe String
+getIdentifierString (Identifier s) = Just s
+getIdentifierString _ = Nothing
+
+isLiteral :: Token -> Bool
+isLiteral (Literal _) = true
+isLiteral _ = false
+
+getLiteral :: Token -> Literal
+getLiteral (Literal l) = l
+getLiteral _ = error "bad"
+
+token
+    = whitespace
+    <|> (char '(' *> pure LParen)
+    <|> (char ')' *> pure RParen)
+    <|> (char '{' *> pure LBrace)
+    <|> (char '}' *> pure RBrace)
+    <|> (char ':' *> pure Colon)
+    <|> (char ';' *> pure SemiColon)
+    <|> (char ',' *> pure Comma)
+    <|> (char '.' *> pure Dot)
+    <|> (char '!' *> pure Bang)
+    <|> (fmap Op operator)
+    <|> (fmap Literal basicliteral)
+    <|> identifier
+

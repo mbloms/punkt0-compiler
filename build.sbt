@@ -5,3 +5,9 @@ version := "1.0"
 scalaVersion := "2.11.8"
 
 scalacOptions ++= Seq("-deprecation", "-unchecked")
+
+mainClass in Compile := Some("Main")
+selectMainClass in Compile := (mainClass in Compile).value
+
+selectMainClass in Test := Some("Test")
+
