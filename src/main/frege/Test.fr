@@ -56,8 +56,8 @@ instance Arbitrary NonEmptyString where
 
 
 reserved :: [String]
-reserved = []
---reserved = map fst atomicliterals ++ map fst keywords
+--reserved = []
+reserved = map fst atomicliterals ++ map fst keywords
 
 instance Arbitrary Identifier where
     arbitrary
