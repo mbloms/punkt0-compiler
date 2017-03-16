@@ -46,7 +46,13 @@ between before after mid = before *> mid <* after
 -- match ", then match any char sequence (not '"'), then match " and return the char sequence
 stringliteral = between (char '"') (char '"') $ fmap (LitString . packed) (many (satisfy (\c -> c /= '"' && c /= '\n')))
 
-intliteral = fmap (LitInt . atoi . packed) $ some digit
+oneToNine = satisfy (\c -> c `elem` ['1','2','3','4','5','6','7','8','9'])
+single x = [x]
+singleZero = (fmap single $ char '0')
+
+intliteral = fmap (LitInt . atoi . packed) $
+    (fmap (:) oneToNine <*> many digit) -- no leading zeros
+    <|> singleZero
 
 basicliteral = stringliteral <|> intliteral
 
