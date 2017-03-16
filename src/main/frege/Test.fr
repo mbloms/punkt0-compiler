@@ -3,7 +3,7 @@ module Test where
 import frege.test.QuickCheck
 import lexer.Lexer(scanTokens, FileIterator)
 import parser.Parser(parse)
-import punkt0.lexer.Tokens (token,atomicliterals,keywords)
+import punkt0.lexer.Tokens (token,atomicliterals,keywords,types)
 import punkt0.parser.Grammar hiding (token,wrap)
 import punkt0.Positioned (initialPosition, Position)
 import punkt0.parser.Pretty(prettyPrint)
@@ -57,7 +57,7 @@ instance Arbitrary NonEmptyString where
 
 reserved :: [String]
 --reserved = []
-reserved = map fst atomicliterals ++ map fst keywords
+reserved = map fst atomicliterals ++ map fst keywords ++ map fst types
 
 instance Arbitrary Identifier where
     arbitrary
