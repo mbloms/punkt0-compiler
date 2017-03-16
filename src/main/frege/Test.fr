@@ -22,6 +22,7 @@ instance Arbitrary StringLiteral where
             -- we can't have quotation marks or newlines in string literals
             -- because there is no escaping
             strChar = arbitrary `suchThat` (\c -> and [c /= '\n', c /= '"', isPrint c])
+    shrink (SL "") = []
     shrink (SL str) = [SL ""]
 
 data Letter = L {!value :: Char}
@@ -111,20 +112,21 @@ instance Arbitrary Expression where
             str = fmap StringLiteral.value (arbitrary :: Gen StringLiteral)
             pos :: Gen Position
             pos = pure initialPosition
-    shrink (LitInt i pos) = [LitInt i' pos | (Positive i') <- shrink (Positive i)]
-    shrink (LitTrue pos) = [LitFalse pos]
-    shrink (LitFalse pos) = [LitNull pos]
-    shrink (LitString s pos) = [LitString s' pos | (SL s') <- shrink (SL s)]
-    shrink (New i pos) = [Identifier i pos]
-    shrink (Identifier _ pos) = [LitNull pos]
-    shrink (LitThis pos) = [LitNull pos]
+    shrink (Identifier i pos) = []
+    shrink (LitTrue pos) = []
+    shrink (LitFalse pos) = []
+    shrink (New i pos) = []
+    shrink (LitThis pos) = []
     shrink (LitNull _) = []
+    shrink (LitInt i pos) = []
+    shrink (LitString s pos) = []
     shrink (BinOp left op right pos)
         = [left, right] ++ [BinOp e op e' pos | e <- shrink left, e' <- shrink right]
     shrink (MethodCall e i es pos)
         = e : es ++ [MethodCall obj i args pos | obj <- shrink e, args <- shrink es]
     shrink (Not e pos) =  e : [Not e' pos | e' <- shrink e]
-    shrink (Block es pos) = es ++ [Block es' pos | (NonEmpty es') <- shrink (NonEmpty es)]
+    shrink (Block [] _) = []
+    shrink (Block (e:es) pos) = e : es ++ [Block es' pos | (NonEmpty es') <- shrink (NonEmpty es)]
     shrink (Println e pos) = e : [Println p pos | p <- shrink e]
     shrink (Assign i e pos) = e : Identifier i pos : [Assign i e' pos | e' <- shrink e]
     shrink (While e e' pos) = e : e' : [While p b pos | p <- shrink e, b <- shrink e']
@@ -139,14 +141,14 @@ instance Arbitrary MethodDeclaration where
         args <- resize 2 $ listOf arbitrary
         returnType <- arbitrary
         vars <- resize 2 $ listOf arbitrary
-        exprs <- resize 5 $ listOf1 (resize 8 arbitrary)
+        exprs <- resize 10 $ listOf1 (resize 5 arbitrary)
         return $ MethodDeclaration override name args returnType vars exprs initialPosition
     shrink (MethodDeclaration override name args returnType vars exprs pos)
         = [ MethodDeclaration false name [] returnType [] exprs' pos
           | (NonEmpty exprs') <- shrink (NonEmpty exprs)]
           ++ [ MethodDeclaration override name args' returnType vars' exprs' pos
-          | args' <- shrink args
-          , vars' <- shrink vars
+          | args' <- shrinkList shrink args
+          , vars' <- shrinkList shrink vars
           , (NonEmpty exprs') <- shrink (NonEmpty exprs)
           ]
 
@@ -176,10 +178,10 @@ instance Arbitrary ClassDeclaration where
     shrink (Class name extends vars methods pos)
         = Class name extends [] [] pos
           : [ Class name extends [] methods' pos
-          | methods' <- shrink methods]
+          | methods' <- shrinkList shrink methods]
           ++ [ Class name extends vars' methods' pos
           | vars' <- shrink vars
-          , methods' <- shrink methods]
+          , methods' <- shrinkList shrink methods]
 
 instance Arbitrary MainDeclaration where
     arbitrary
@@ -193,7 +195,7 @@ instance Arbitrary MainDeclaration where
         | (NonEmpty body') <- shrink (NonEmpty body)
         ]
         ++ [Main name extends vars body' pos
-        | vars <- shrink vars
+        | vars <- shrinkList shrink vars
         , (NonEmpty body') <- shrink (NonEmpty body)
         ]
 
@@ -201,14 +203,14 @@ instance Arbitrary Program where
     arbitrary
         = do
             main <- arbitrary :: Gen MainDeclaration
-            classes <- resize 8 arbitrary
+            classes <- resize 4 $ listOf arbitrary
             return $ Program classes main initialPosition
     shrink (Program classes main pos)
         = [ Program [] main' pos
           | main' <- shrink main
           ]
           ++ [ Program classes' main' pos
-          | classes' <- shrink classes
+          | classes' <- shrinkList shrink classes
           , main' <- shrink main
           ]
 
@@ -254,8 +256,10 @@ prop_pretty_program ast
             then undefined
             else false
 
+check prop = quickCheckWith stdArgs.{maxSuccess = 500} . whenFail (System.exit 1) $ prop
+
 main = do
-    quickCheck prop_pretty_method
-    quickCheck (forAll (resize 5 arbitrary) prop_pretty_expr)
-    quickCheck prop_pretty_program
+    check (forAll (resize 5 arbitrary) prop_pretty_expr)
+    check prop_pretty_method
+    check prop_pretty_program
 

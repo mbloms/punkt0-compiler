@@ -1,4 +1,5 @@
 module punkt0.Main where
+import Java.IO(stderr)
 import lexer.Lexer (scanTokens, FileIterator, Lexeme(Bad))
 import punkt0.lexer.Tokens (identifier, token, Token())
 import punkt0.parser.Grammar (program, expression, simpleexpression, Program, scalashow)
@@ -54,10 +55,10 @@ displayHelp :: IO ()
 displayHelp = print "Well. Don't ask me."
 
 
-crashAndBurn :: Show e => [e] -> IO ()
-crashAndBurn errors = mapM_ println errors >> System.exit 1
+crashAndBurn :: [String] -> IO ()
+crashAndBurn errors = mapM_ (stderr.println) errors >> System.exit 1
 
-runIO :: Show e => (a -> IO ()) -> ([e] | a) -> IO ()
+runIO :: (a -> IO ()) -> ([String] | a) -> IO ()
 runIO ok result = either crashAndBurn ok result
 
 main :: [String] -> IO ()
