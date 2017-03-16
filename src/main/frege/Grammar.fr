@@ -371,6 +371,10 @@ instance ScalaShow ClassDeclaration where
             , wrapList methods
             ]
 
+instance ScalaShow a => ScalaShow (Maybe a) where
+    scalashow Nothing = "None()"
+    scalashow (Just x) = wrap "Some" scalashow x
+
 instance ScalaShow Identifier where
     scalashow (ID str _) = wrap "Identifier" id str
 

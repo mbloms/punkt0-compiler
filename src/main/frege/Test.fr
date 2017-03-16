@@ -3,7 +3,7 @@ module Test where
 import frege.test.QuickCheck
 import lexer.Lexer(scanTokens, FileIterator)
 import parser.Parser(parse)
-import punkt0.lexer.Tokens (token)
+import punkt0.lexer.Tokens (token,atomicliterals,keywords)
 import punkt0.parser.Grammar hiding (token,wrap)
 import punkt0.Positioned (initialPosition, Position)
 import punkt0.parser.Pretty(prettyPrint)
@@ -11,7 +11,7 @@ import Data.Char(isPrint)
 
 data NonEmptyString = S { !getNonEmpty :: String}
 
-letters = unpacked "abcdefgijklmnopqrstuvxyzåäöπα"
+letters = unpacked "abcdefgijklmnopqrstuvxyzåäöπαABCDEFGHIJKLMNOPQRSTUVXYZ"
 digits = unpacked "012345678"
 
 data StringLiteral = SL {!value :: String}
@@ -22,6 +22,7 @@ instance Arbitrary StringLiteral where
             -- we can't have quotation marks or newlines in string literals
             -- because there is no escaping
             strChar = arbitrary `suchThat` (\c -> and [c /= '\n', c /= '"', isPrint c])
+    shrink (SL str) = [SL ""]
 
 data Letter = L {!value :: Char}
 instance Arbitrary Letter where
@@ -37,7 +38,6 @@ instance Arbitrary AlphaNum where
             alphanums :: [AlphaNum]
             alphanums = fmap A $ letters ++ digits
 
-keywords = ["class","extends","def","override","object","new","if","else","while","var","println"]
 
 instance Arbitrary NonEmptyString where
     arbitrary = do
@@ -46,14 +46,30 @@ instance Arbitrary NonEmptyString where
         let chars = map AlphaNum.value alphanums
         let str = packed (c:chars)
         pure $ S str
+    shrink (S str) = map (S . packed) . shrinkChars . unpacked $ str
+        where
+            -- should never happen, but let's make a case for it anyway
+            shrinkChars [] = [['a']]
+            -- keep the first char in the shrunk string
+            shrinkChars (c:cs) = map (c :) $ shrinkList shrink cs
+
+
+reserved :: [String]
+--reserved = []
+reserved = map fst atomicliterals ++ map fst keywords
 
 instance Arbitrary Identifier where
     arbitrary
         = do
             (S str) <- arbitrary :: Gen NonEmptyString
-            if str `elem` keywords
+            if str `elem` reserved
              then arbitrary -- try again
              else pure $ ID str initialPosition
+    shrink (ID str pos)
+        = [ ID str' pos
+        | (S str') <- shrink (S str)
+        , not $ str' `elem` reserved
+        ]
 
 positiveInt :: Gen Int
 positiveInt = fmap Positive.getPositive positive
@@ -95,26 +111,25 @@ instance Arbitrary Expression where
             str = fmap StringLiteral.value (arbitrary :: Gen StringLiteral)
             pos :: Gen Position
             pos = pure initialPosition
-    shrink (LitInt i pos) = LitNull pos : [LitInt i' pos | i' <- shrink i]
-    shrink (LitTrue pos) = LitNull pos : [LitFalse pos]
+    shrink (LitInt i pos) = [LitInt i' pos | (Positive i') <- shrink (Positive i)]
+    shrink (LitTrue pos) = [LitFalse pos]
     shrink (LitFalse pos) = [LitNull pos]
-    shrink (LitString s pos) = LitNull pos : [LitString s' pos | s' <- shrink s]
-    shrink (New i pos) = LitNull pos : [Identifier i pos]
+    shrink (LitString s pos) = [LitString s' pos | (SL s') <- shrink (SL s)]
+    shrink (New i pos) = [Identifier i pos]
     shrink (Identifier _ pos) = [LitNull pos]
     shrink (LitThis pos) = [LitNull pos]
     shrink (LitNull _) = []
     shrink (BinOp left op right pos)
-        = LitNull pos : [left, right] ++ [BinOp e op e' pos | e <- shrink left, e' <- shrink right] ++ [left,right]
+        = [left, right] ++ [BinOp e op e' pos | e <- shrink left, e' <- shrink right]
     shrink (MethodCall e i es pos)
-        = LitNull pos : e : es ++ [MethodCall obj i args pos | obj <- shrink e, args <- shrink es]
-    shrink (Not e pos) = LitNull pos : e : [Not e' pos | e' <- shrink e]
-    shrink (Block es pos) = LitNull pos : es ++ [Block es' pos | (NonEmpty es') <- shrink (NonEmpty es)]
-    shrink (Println e pos) = LitNull pos : e : [Println p pos | p <- shrink e]
-    shrink (Assign i e pos) = LitNull pos : e : [Assign i e' pos | e' <- shrink e]
-    shrink (While e e' pos) = LitNull pos : e : e' : [While p b pos | p <- shrink e, b <- shrink e']
+        = e : es ++ [MethodCall obj i args pos | obj <- shrink e, args <- shrink es]
+    shrink (Not e pos) =  e : [Not e' pos | e' <- shrink e]
+    shrink (Block es pos) = es ++ [Block es' pos | (NonEmpty es') <- shrink (NonEmpty es)]
+    shrink (Println e pos) = e : [Println p pos | p <- shrink e]
+    shrink (Assign i e pos) = e : Identifier i pos : [Assign i e' pos | e' <- shrink e]
+    shrink (While e e' pos) = e : e' : [While p b pos | p <- shrink e, b <- shrink e']
     shrink (If e e' elseBody pos)
-        = LitNull pos : e : e' :
-        [If p b el pos | p <- shrink e, b <- shrink e', el <- shrink elseBody]
+        = e : e' : [If p b el pos | p <- shrink e, b <- shrink e', el <- shrink elseBody]
 
 instance Arbitrary MethodDeclaration where
     arbitrary
@@ -127,7 +142,9 @@ instance Arbitrary MethodDeclaration where
         exprs <- resize 5 $ listOf1 (resize 8 arbitrary)
         return $ MethodDeclaration override name args returnType vars exprs initialPosition
     shrink (MethodDeclaration override name args returnType vars exprs pos)
-        = [ MethodDeclaration override name args' returnType vars' exprs' pos
+        = [ MethodDeclaration false name [] returnType [] exprs' pos
+          | (NonEmpty exprs') <- shrink (NonEmpty exprs)]
+          ++ [ MethodDeclaration override name args' returnType vars' exprs' pos
           | args' <- shrink args
           , vars' <- shrink vars
           , (NonEmpty exprs') <- shrink (NonEmpty exprs)
@@ -143,7 +160,7 @@ instance Arbitrary VarDeclaration where
         = do
         name <- arbitrary
         varType <- arbitrary
-        expr <- resize 10 arbitrary
+        expr <- resize 5 arbitrary
         return $ Var name varType expr initialPosition
     shrink (Var name varType expr pos)
         = [Var name varType expr' pos | expr' <- shrink expr]
@@ -157,17 +174,28 @@ instance Arbitrary ClassDeclaration where
         methods <- resize 5 $ listOf arbitrary
         return $ Class name extends vars methods initialPosition
     shrink (Class name extends vars methods pos)
-        = [Class name extends vars' methods' pos | vars' <- shrink vars, methods' <- shrink methods]
+        = Class name extends [] [] pos
+          : [ Class name extends [] methods' pos
+          | methods' <- shrink methods]
+          ++ [ Class name extends vars' methods' pos
+          | vars' <- shrink vars
+          , methods' <- shrink methods]
 
 instance Arbitrary MainDeclaration where
     arbitrary
         = do
         name <- arbitrary :: Gen Identifier
         extends <- arbitrary :: Gen Identifier
-        (NonEmpty body) <- (resize 8 arbitrary :: Gen (NonEmptyList Expression))
+        body <- resize 5 $ listOf1 $ resize 5 arbitrary
         return $ Main name extends [] body initialPosition
     shrink (Main name extends vars body pos)
-        = [Main name extends vars body' pos | (NonEmpty body') <- shrink (NonEmpty body)]
+        = [ Main name extends [] body' pos
+        | (NonEmpty body') <- shrink (NonEmpty body)
+        ]
+        ++ [Main name extends vars body' pos
+        | vars <- shrink vars
+        , (NonEmpty body') <- shrink (NonEmpty body)
+        ]
 
 instance Arbitrary Program where
     arbitrary
@@ -175,8 +203,14 @@ instance Arbitrary Program where
             main <- arbitrary :: Gen MainDeclaration
             classes <- resize 8 arbitrary
             return $ Program classes main initialPosition
-    shrink (Program main classes pos)
-        = [Program main' classes' pos | main' <- shrink main, classes' <- shrink classes]
+    shrink (Program classes main pos)
+        = [ Program [] main' pos
+          | main' <- shrink main
+          ]
+          ++ [ Program classes' main' pos
+          | classes' <- shrink classes
+          , main' <- shrink main
+          ]
 
 parseCode code parser =
     let
@@ -204,25 +238,24 @@ prop_pretty_method ast =
         parseTree = parseCode code (methodDeclaration <* tokenEOF)
     in if Just ast == parseTree
         then true
-        else if traceLn $ code ++ (unlines [show ast, "\n\t/=\n", show parseTree])
+        else if traceLn $ code ++ (unlines [scalashow ast, "\n\t/=\n", scalashow parseTree])
             then undefined
             else false
 
 prop_pretty_program :: Program -> Bool
 prop_pretty_program ast
--- | traceLn $ show ast = undefined
  | otherwise =
     let
         code = prettyPrint ast
         parseTree = parseCode code program
     in if Just ast == parseTree
         then true
-        else if traceLn $ code ++ (unlines [show ast, "\n\t/=\n", show parseTree])
+        else if traceLn $ code ++ (unlines [scalashow ast, "\n\t/=\n", scalashow parseTree])
             then undefined
             else false
 
 main = do
     quickCheck prop_pretty_method
-    quickCheck (forAll (resize 7 arbitrary) prop_pretty_expr)
+    quickCheck (forAll (resize 5 arbitrary) prop_pretty_expr)
     quickCheck prop_pretty_program
 

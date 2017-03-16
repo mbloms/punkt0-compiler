@@ -127,13 +127,13 @@ instance Pretty Expression where
     prettyf (Identifier x _)
         = prettyf x
     prettyf (New x _)
-        = wrap Parens $ prettyf "new" • prettyf x • prettyf "()"
+        = prettyf "new" • prettyf x • prettyf "()"
     prettyf (Not x _)
         = wrap Parens $ prettyf '!' • prettyf x
     prettyf (Block xs _)
         = wrap Brackets $ unroll semicolon xs
     prettyf (Println x _)
-        = wrap Parens $ prettyf "println" • wrap Parens (prettyf x)
+        = prettyf "println" • wrap Parens (prettyf x)
     prettyf (BinOp a x b _)
         = wrap Parens $ prettyf a • prettyf x • prettyf b
     prettyf (MethodCall expr method args _)
