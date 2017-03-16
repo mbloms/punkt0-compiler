@@ -11,7 +11,5 @@ selectMainClass in Compile := (mainClass in Compile).value
 
 selectMainClass in Test := Some("Test")
 
-// if System.getProperty("java.version").startsWith("1.7") {
 fregeOptions ++= Seq("-target", "1.7")
 fregeLibrary := "org.frege-lang" % "frege" % "3.24.100.1" classifier "jdk7"
-//}

@@ -55,8 +55,8 @@ instance Arbitrary NonEmptyString where
 
 
 reserved :: [String]
---reserved = []
-reserved = map fst atomicliterals ++ map fst keywords
+reserved = []
+--reserved = map fst atomicliterals ++ map fst keywords
 
 instance Arbitrary Identifier where
     arbitrary
@@ -254,8 +254,10 @@ prop_pretty_program ast
             then undefined
             else false
 
+check prop = quickCheck . whenFail (System.exit 1) $ prop
+
 main = do
-    quickCheck prop_pretty_method
-    quickCheck (forAll (resize 5 arbitrary) prop_pretty_expr)
-    quickCheck prop_pretty_program
+    check prop_pretty_method
+    check (forAll (resize 5 arbitrary) prop_pretty_expr)
+    check prop_pretty_program
 
