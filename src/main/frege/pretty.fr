@@ -25,7 +25,7 @@ pretty x = prettyf x []
 data Entry = Word String | Brackets [Entry] | Parens [Entry] | Char Char
 
 classk = (Word "class" :)
-extends = (Word "extends" :)
+extendsk = (Word "extends" :)
 object = (Word "object" :)
 
 wrap :: ([a] -> Entry) -> ([a] -> [a]) -> ([Entry] -> [Entry])
@@ -36,14 +36,17 @@ wrapf f x = (f x :)
 
 instance Pretty a => Pretty [a] where
     prettyf [] = id
-    prettyf ( !x : !xs) = prettyf x . prettyf xs
+    prettyf ( !x : !xs) = prettyf x • prettyf xs
 
 instance Pretty Program where
-    prettyf (Program classes main _) = prettyf classes . prettyf main
+    prettyf (Program classes main _) = prettyf classes • prettyf main
 
 instance Pretty ClassDeclaration where
-    prettyf !cd = classk . prettyf cd.name . prettyf (fmap (\x-> extends . prettyf x) cd.extends) .
-        wrap Brackets (prettyf cd.vars . prettyf cd.methods)
+    prettyf !Class{name,extends,vars,methods}
+        = classk
+        • (prettyf name)
+        • prettyf (fmap (\x -> extendsk • prettyf x) extends)
+        • wrap Brackets (prettyf vars • prettyf methods)
 
 instance Pretty a => Pretty (Maybe a) where
     prettyf Nothing = id
@@ -55,14 +58,25 @@ instance Pretty ([Entry] -> [Entry]) where
     prettyf = id
 
 instance Pretty MainDeclaration where
-    prettyf !md = object . prettyf md.name . extends . prettyf md.extends
-        . wrap Brackets (prettyf md.vars . unroll semicolon md.body)
+    prettyf !Main{name,extends,vars,body}
+        = object
+        • prettyf name
+        • extendsk
+        • prettyf extends
+        • wrap Brackets (prettyf vars • unroll semicolon body)
 
 instance Pretty Identifier where
     prettyf (ID str _) = (Word str :)
 
 instance Pretty VarDeclaration where
-    prettyf !vd = var . prettyf vd.name . colon . prettyf vd.varType . eq . prettyf vd.expr . semicolon
+    prettyf !Var{name,varType,expr}
+        = var
+        • prettyf name
+        • colon
+        • prettyf varType
+        • eq
+        • prettyf expr
+        • semicolon
 
 var = (Word "var" :)
 colon = (Char ':' :)
@@ -70,25 +84,24 @@ eq = (Char '=' :)
 semicolon = prettyf ";\n"
 
 instance Pretty MethodDeclaration where
-    prettyf !md = (
-        (override md.override)
-        . def
-        . (prettyf md.name)
-        . (
-            wrap Parens (unroll comma (map prettyf md.args))
-            . (prettyf ':' . prettyf md.returnType . prettyf '=')
-            . (wrap Brackets (prettyf md.vars . unroll semicolon md.exprs))))
+    prettyf !MethodDeclaration{override,name,args,returnType,vars,exprs} =
+        (overridek override)
+        • def
+        • (prettyf name)
+        • wrap Parens (unroll comma $ map prettyf args)
+        • prettyf ':' • prettyf returnType • prettyf '='
+        • wrap Brackets (prettyf vars • unroll semicolon exprs)
 
 instance Pretty (Identifier,Type) where
-    prettyf (i,t) = prettyf i . colon . prettyf t
+    prettyf (i,t) = prettyf i • colon • prettyf t
 
-override True = prettyf "override"
-override False = id
+overridek True = prettyf "override"
+overridek False = id
 def = prettyf "def"
 comma = prettyf ','
 
 unroll :: Pretty a => ([Entry] -> [Entry]) -> [a] -> ([Entry] -> [Entry])
-unroll f (a:b:cs) = prettyf a . f . unroll f (b:cs)
+unroll f (a:b:cs) = prettyf a • f • unroll f (b:cs)
 unroll _ [x] = prettyf x
 unroll _ [] = id
 
@@ -99,25 +112,50 @@ instance Pretty Char where
     prettyf c = (Char c :)
 
 instance Pretty Expression where
-    prettyf (LitTrue _) = prettyf "true"
-    prettyf (LitFalse _) = prettyf "false"
-    prettyf (LitThis _) = prettyf "this"
-    prettyf (LitNull _) = prettyf "null"
-    prettyf (LitInt i _) = prettyf i
-    prettyf (LitString str _) = prettyf ("\"" ++ str ++ "\"")
-    prettyf (Identifier x _) = prettyf x
-    prettyf (New x _) = prettyf "new" . prettyf x . prettyf "()"
-    prettyf (Not x _) = wrap Parens $ (prettyf '!') . (prettyf x)
-    prettyf (Block xs _) = wrap Brackets $ unroll semicolon xs
-    prettyf (Println x _) = prettyf "println" . wrap Parens (prettyf x)
-    prettyf (BinOp a x b _) = wrap Parens $ (prettyf a) . prettyf x . (prettyf b)
-    prettyf (MethodCall expr method args _) = wrap Parens $ prettyf expr . prettyf '.' . prettyf method . wrap Parens (unroll comma args)
-    prettyf (If pred ifs buts _) = wrap Parens $ prettyf "if" . wrap Parens (prettyf pred)
-        . prettyf '\n' . prettyf ifs . prettyf '\n'
-            . prettyf (fmap (prettyf "else".) (fmap prettyf buts))
-                . prettyf '\n'
-    prettyf (While pred body _) = wrap Parens $ prettyf "while" . wrap Parens (prettyf pred) . prettyf body
-    prettyf (Assign lhs rhs _) = wrap Parens $ prettyf lhs . prettyf '=' . prettyf rhs
+    prettyf (LitTrue _)
+        = prettyf "true"
+    prettyf (LitFalse _)
+        = prettyf "false"
+    prettyf (LitThis _)
+        = prettyf "this"
+    prettyf (LitNull _)
+        = prettyf "null"
+    prettyf (LitInt i _)
+        = prettyf i
+    prettyf (LitString str _)
+        = prettyf ("\"" ++ str ++ "\"")
+    prettyf (Identifier x _)
+        = prettyf x
+    prettyf (New x _)
+        = wrap Parens $ prettyf "new" • prettyf x • prettyf "()"
+    prettyf (Not x _)
+        = wrap Parens $ prettyf '!' • prettyf x
+    prettyf (Block xs _)
+        = wrap Brackets $ unroll semicolon xs
+    prettyf (Println x _)
+        = wrap Parens $ prettyf "println" • wrap Parens (prettyf x)
+    prettyf (BinOp a x b _)
+        = wrap Parens $ prettyf a • prettyf x • prettyf b
+    prettyf (MethodCall expr method args _)
+        = wrap Parens
+        $ prettyf expr
+        • prettyf '.'
+        • prettyf method
+        • wrap Parens (unroll comma args)
+    prettyf (If pred ifs buts _)
+        = wrap Parens
+        $ prettyf "if" • wrap Parens (prettyf pred)
+        • prettyf '\n'
+        • prettyf ifs
+        • prettyf '\n'
+        • prettyf (fmap (prettyf "else" •) (fmap prettyf buts))
+        • prettyf '\n'
+    prettyf (While pred body _)
+        = wrap Parens
+        $ prettyf "while" • wrap Parens (prettyf pred)
+        • prettyf body
+    prettyf (Assign lhs rhs _)
+        = wrap Parens $ prettyf lhs • prettyf '=' • prettyf rhs
 
 instance Pretty Type where
     prettyf Bool = prettyf "Boolean"
