@@ -1,5 +1,6 @@
 module punkt0.Phase where
 import punkt0.Reporter
+import Java.IO(stderr)
 
 data Phase a = Phase {!run :: ReporterT [String] IO a}
 
@@ -21,7 +22,7 @@ instance Monad Phase where
     phase >>= f = Phase $ ReporterT $ do
         result <- runPhase phase
         case result of
-            -- If errors crash after showing all errors
-            Left errors = fmap (toAccumulate . Left) (mapM_ println errors >> System.exit 1 >> pure errors)
+            -- Return errors
+            Left errors = fmap (toAccumulate . Left) $ pure errors
             -- If no errors, pass result to next phase
             Right x = fmap toAccumulate $ runPhase (f x)
