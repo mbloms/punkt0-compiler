@@ -3,5 +3,4 @@ scala:
 - 2.11.8
 jdk:
     - oraclejdk8
-    - oraclejdk7
-script: sbt -J-Xss2m ++$TRAVIS_SCALA_VERSION test:run
+script: sbt -v -J-Xss2m ++$TRAVIS_SCALA_VERSION test:run
