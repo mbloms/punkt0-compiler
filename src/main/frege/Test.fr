@@ -1,5 +1,6 @@
 module Test where
 
+import punkt0.ScalaShow
 import frege.test.QuickCheck
 import lexer.Lexer(scanTokens, FileIterator)
 import parser.Parser(parse)
@@ -219,7 +220,7 @@ parseCode code parser =
         tokens = (scanTokens token) . FileIterator.from $ code
         parsed = parse parser tokens
     in case parsed of
-        [([], parseTree)] -> Just parseTree
+        Right ([], parseTree) -> Just parseTree
         _ -> Nothing
 
 prop_pretty_expr :: Expression -> Bool

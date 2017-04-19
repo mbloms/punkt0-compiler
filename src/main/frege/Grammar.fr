@@ -1,4 +1,5 @@
 module punkt0.parser.Grammar where
+import punkt0.ScalaShow
 import parser.Parser
 import punkt0.Positioned
 import lexer.Lexer(Lexeme())
@@ -16,7 +17,7 @@ tokenIdentifier = satisfy $ \lex ->
         Lexeme.Ok (Tokens.Identifier _) _ = true
         _ = false
 
-token t = symbol (Lexeme.Ok t undefined)
+token t = symbol (Lexeme.Ok t undefined) <?> ("Failed to match " ++ show t)
 
 tokenOp :: Tokens.Operator -> Parser Lex Lex
 tokenOp t = token (Tokens.Op t)
@@ -324,8 +325,6 @@ simpleexpression =
             body <- expression
             return $ While predicate body w.position
 
-class ScalaShow a where
-    scalashow :: a -> String
 
 wrap :: String -> (a -> String) -> a -> String
 wrap prefix f x = prefix ++ "(" ++ f x ++ ")"
