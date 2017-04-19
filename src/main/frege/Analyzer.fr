@@ -1,0 +1,33 @@
+module punkt0.Analyzer where
+import Data.HashMap
+type ClassName = String
+
+type Extends = HashMap ClassName ClassName
+type Inheritance = HashMap ClassName [ClassName]
+
+inheritance :: Extends -> Inheritance
+inheritance extMap = result
+    where
+        result = mapWithKey extend extMap
+        extend c super = supers super
+        supers super = maybe [] (super :) (lookup super result)
+
+cycleChecks :: Inheritance -> Inheritance
+cycleChecks map = filterWithKey (\c _ -> not $ c `member` withCycles) map
+    where
+        withCycles = foldWithKey findCycles empty map
+        findCycles cycles c supers
+            = if c `member` cycles
+                then cycles
+                else cycles `union` cycleCheck empty (c:supers)
+        cycleCheck _ [] = empty
+        cycleCheck visited (c:cs)
+            = if member c visited
+                then visited
+                else cycleCheck (insert c True visited) cs
+
+main = do
+    let extends = fromList [("a", "b"), ("b", "c"), ("c", "a"), ("d", "a"), ("e", "Any")]
+    let is = inheritance extends
+    mapM_ println (keys $ cycleChecks is)
+
