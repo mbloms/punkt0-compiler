@@ -40,6 +40,8 @@ instance (Applicative f, Semigroup e) => Applicative (ReporterT e f) where
 report1 :: e -> Accumulate [e] a
 report1 msg = ALeft [msg]
 
+reportMany errs = ALeft errs
+
 runReporterT :: Applicative m => ReporterT e m a -> m (e | a)
 runReporterT reporter = fmap toEither reporter.run
 

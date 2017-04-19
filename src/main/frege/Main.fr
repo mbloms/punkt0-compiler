@@ -2,7 +2,7 @@ module punkt0.Main where
 import Java.IO(stderr)
 import lexer.Lexer (scanTokens, FileIterator, Lexeme(Bad))
 import punkt0.lexer.Tokens (identifier, token, Token())
-import punkt0.parser.Grammar (program, expression, simpleexpression, Program, scalashow)
+import punkt0.parser.Grammar (program, expression, simpleexpression, Program)
 import frege.control.monad.trans.MonadIO
 import punkt0.Context
 import punkt0.Phase
@@ -10,6 +10,7 @@ import punkt0.Reporter
 import Data.Traversable(traverse)
 import punkt0.parser.Pretty (prettyPrint)
 import punkt0.Positioned
+import punkt0.ScalaShow
 
 tokens :: String -> [Lexeme Token]
 tokens = (scanTokens token) . FileIterator.from
@@ -46,14 +47,12 @@ parsePhase :: [Lexeme Token] -> Phase Program
 parsePhase tokens =
     let result = program.run $ tokens
     in phase $ pure $ case result of
-        [] = report1 "No possible parse"
-        [([],p)] = pure p
-        [(t:_, _)] = report1 $ "unexpected" ++ show t
-        _ = report1 "Ambiguous parse"
+        Left err = reportMany err
+        Right ([],p) = pure p
+        Right ((t:_), _) = report1 $ "unexpected" ++ scalashow t
 
 displayHelp :: IO ()
 displayHelp = print "Well. Don't ask me."
-
 
 crashAndBurn :: [String] -> IO ()
 crashAndBurn errors = mapM_ (stderr.println) errors >> System.exit 1
@@ -69,7 +68,8 @@ main args
             tokens = tokenPhase context.file
             parseTree = tokens >>= parsePhase
             phases = do
-                when context.tokens ((runPhase tokens) >>= (runIO $ mapM_ println))
+                when context.tokens ((runPhase tokens) >>= (runIO $ mapM_ $ println . scalashow))
                 when context.ast ((runPhase parseTree) >>= (runIO $ println . scalashow))
                 when context.pretty ((runPhase parseTree) >>= (runIO $ println . prettyPrint))
         in phases
+
