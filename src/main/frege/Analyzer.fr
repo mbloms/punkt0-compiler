@@ -1,34 +1,46 @@
 module punkt0.Analyzer where
 import Data.HashMap
+
+-- | Simultate HashSet using a HashMap with values as unit ()
+type HashSet a = HashMap a ()
+
+add :: Eq a => a -> HashSet a -> HashSet a
+add x = insert x ()
+
 type ClassName = String
+type Extends a = HashMap a a
+type Inheritance a = HashMap a [a]
 
-type Extends = HashMap ClassName ClassName
-type Inheritance = HashMap ClassName [ClassName]
-
-inheritance :: Extends -> Inheritance
+-- | Expand inheritance chain
+inheritance :: Eq a => Extends a -> Inheritance a
 inheritance extMap = result
     where
-        result = mapWithKey extend extMap
-        extend c super = supers super
+        result = mapValues supers extMap
         supers super = maybe [super] (super :) (lookup super result)
 
-cycleChecks :: Inheritance -> Inheritance
+-- | Verify non-existance of circular dependencies
+cycleChecks :: Eq a => Inheritance a -> Inheritance a
 cycleChecks map = filterWithKey (\c _ -> not $ c `member` withCycles) map
     where
+        -- set of all classes that have circular dependencies
         withCycles = foldWithKey findCycles empty map
+        findCycles :: Eq a => HashSet a -> a -> [a] -> HashSet a
         findCycles cycles c supers
             = if c `member` cycles
                 then cycles
                 else cycles `union` cycleCheck empty (c:supers)
-        cycleCheck _ [] = empty
+        -- check for cycle in list of classes
+        cycleCheck :: Eq a => HashSet a -> [a] -> HashSet a
+        cycleCheck _ [] = empty -- no cycle found, return empty set
         cycleCheck visited (c:cs)
-            = if member c visited
-                then visited
-                else cycleCheck (insert c True visited) cs
+            = if member c visited -- if the class has already been visited there's a cycle
+                then visited -- return set of all visited classes so far (all of them must be cyclic)
+                else cycleCheck (add c visited) cs
 
 main = do
-    let extends = fromList [("a", "b"), ("b", "c"), ("c", "a"), ("d", "a"), ("e", "Any")]
+    let extends = fromList [("a", "b"), ("b", "c"), ("c", "a"), ("d", "a"), ("e", "Any"), ("f", "e")]
     let is = inheritance extends
     println (show . fromMaybe [] $ lookup "e" is) -- should be ["Any"]
-    mapM_ println (keys $ cycleChecks is)
+    println (show . fromMaybe [] $ lookup "f" is) -- should be ["e", "Any"]
+    println . keys $ cycleChecks is
 
