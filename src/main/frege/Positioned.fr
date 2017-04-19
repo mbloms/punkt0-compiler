@@ -1,6 +1,11 @@
 module punkt0.Positioned where
+import punkt0.ScalaShow
 
 data Position = Pos {!offset, !line, !col :: Int}
+derive Show Position
+
+instance ScalaShow Position where
+    scalashow Pos{line,col} = "("++ show line ++ ":" ++ show col ++")"
 
 initialPosition = Pos 0 1 1
 

@@ -1,8 +1,10 @@
 module parser.Parser where
+import punkt0.Positioned
+import punkt0.ScalaShow
 
-data Parser token result = Parser { run :: [token] -> [([token], result)]}
+data Parser token result = Parser {run :: [token] -> ([String] | ([token],result))}
 
-parse :: Parser token result -> [token] -> [([token], result)]
+parse :: Parser token result -> [token] -> ([String] | ([token], result))
 parse parser = parser.run
 
 instance Functor (Parser token) where
@@ -10,54 +12,57 @@ instance Functor (Parser token) where
 
 instance Applicative (Parser token) where
     fparser <*> xparser = Parser $ \tokens ->
-        [(tokens'', f x) |
-            (tokens', f) <- fparser.run tokens,
-            (tokens'', x) <- xparser.run tokens']
-    pure x = Parser (\tokens -> [(tokens, x)])
+        case fparser.run tokens of
+            Left err -> Left err
+            Right (tokens', f) ->
+                case xparser.run tokens' of
+                    Left err -> Left err
+                    Right (tokens'', x) -> Right (tokens'', f x)
+    pure x = Parser (\tokens -> Right (tokens, x))
 
 instance Monad (Parser token) where
-    pure x = Parser (\tokens -> [(tokens, x)])
+    pure x = Parser (\tokens -> Right (tokens, x))
     aparser >>= f = Parser $ \tokens ->
-        [(tokens'', b) |
-            (tokens', a) <- aparser.run tokens,
-            (tokens'', b) <- (f a).run tokens']
+        case aparser.run tokens of
+            Left err -> Left err
+            Right (tokens', a) -> (f a).run tokens'
 
 instance Alt (Parser token) where
     p <|> q = Parser $ \tokens ->
         case p.run tokens of
-            [] -> q.run tokens
+            Left errs -> q.run tokens
             result -> result
 
 instance Plus (Parser token) where
-    pzero = Parser (\tokens -> [])
+    pzero = Parser (\tokens -> Left ["parse error"])
 
-satisfy :: (token -> Bool) -> Parser token token
+(<?>) :: Parser a b -> String -> Parser a b
+parser <?> msg = Parser $ \tokens ->
+    case parser.run tokens of
+        Left errs -> Left $ msg : errs
+        right -> right
+
+satisfy :: (Positioned token, ScalaShow token) => (token -> Bool) -> Parser token token
 satisfy predicate = Parser $ \tokens ->
     case tokens of
-        [] -> []
+        [] -> Left ["Out of input"]
         (t:rest) -> if predicate t
-            then [(rest,t)]
-            else []
+            then Right (rest,t)
+            else Left ["Does not match predicate for " ++ scalashow t]
 
-many :: (Applicative f, Alt f) => f a -> f [a]
-many !v = many_v
+many !p = fmap reverse (many' [])
     where
-        -- same definition as for some causes:
-        -- ClassCastException: BlackHole cannot be cast to Lexer$TLexer
-        many_v = (fmap (:) v <*> many_v) <|> pure []
+        many' acc = do
+            a <- optional p
+            case a  of
+                Nothing -> return acc
+                Just a  -> many' (a:acc)
 
-some :: (Applicative f, Alt f) => f a -> f [a]
-some !v = some_v
-    where
-        many_v = (fmap (:) v <*> many_v) <|> pure []
-        some_v = (fmap (:) v) <*> many_v
+some !v = fmap (:) v <*> many v
 
-item :: Parser token token
 item = satisfy (const true)
 
-symbol :: Eq token => token -> Parser token token
 symbol t = satisfy (== t)
 
-optional :: Parser token a -> Parser token (Maybe a)
 optional parser = fmap Just parser <|> pure Nothing
 
