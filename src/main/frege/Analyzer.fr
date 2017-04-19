@@ -10,7 +10,7 @@ inheritance extMap = result
     where
         result = mapWithKey extend extMap
         extend c super = supers super
-        supers super = maybe [] (super :) (lookup super result)
+        supers super = maybe [super] (super :) (lookup super result)
 
 cycleChecks :: Inheritance -> Inheritance
 cycleChecks map = filterWithKey (\c _ -> not $ c `member` withCycles) map
@@ -29,5 +29,6 @@ cycleChecks map = filterWithKey (\c _ -> not $ c `member` withCycles) map
 main = do
     let extends = fromList [("a", "b"), ("b", "c"), ("c", "a"), ("d", "a"), ("e", "Any")]
     let is = inheritance extends
+    println (show . fromMaybe [] $ lookup "e" is) -- should be ["Any"]
     mapM_ println (keys $ cycleChecks is)
 
