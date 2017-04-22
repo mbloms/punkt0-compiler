@@ -5,6 +5,7 @@ import frege.control.monad.trans.MonadTrans
 import frege.control.monad.trans.MonadIO
 
 data Accumulate e a = ALeft e | ARight a
+derive Show (Accumulate e a)
 
 toEither :: Accumulate e a -> (e | a)
 toEither (ALeft e) = Left e
@@ -13,6 +14,10 @@ toEither (ARight a) = Right a
 toAccumulate :: (e | a) -> Accumulate e a
 toAccumulate (Left e) = ALeft e
 toAccumulate (Right a) = ARight a
+
+mapError :: (e -> f) -> Accumulate [e] a -> Accumulate [f] a
+mapError f (ALeft es) = (ALeft (fmap f es))
+mapError _ (ARight a) = (ARight a)
 
 instance Functor (Accumulate e) where
     fmap f (ARight x) = ARight $ f x
