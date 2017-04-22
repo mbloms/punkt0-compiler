@@ -165,7 +165,7 @@ typeParser =
     <|> (fmap User identifier)
 
 data Identifier
-    = ID String Position
+    = ID {str :: String, pos :: Position}
 derive Eq Identifier
 derive Show Identifier
 
