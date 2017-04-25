@@ -16,32 +16,60 @@ data TType
     | TInt
     | TString
     | TUnit
-    | TClass {name :: String}
+    | TClass {name :: String, extends :: HashSet String}
+
+data TMethod = TMethod ([TType], TType)
+
 derive Show TType
 derive Eq TType
 
-type Context = HashMap String TType
-type TypeCheck a = Accumulate [(String, Position)] a
+data Environment
+    = Env
+    { vars :: HashMap String (TType, VarDeclaration)
+    , methods :: HashMap String (TMethod, MethodDeclaration)
+    , classes :: HashMap String
+        ( TType
+        , (ClassDeclaration
+            , HashMap String (TType, VarDeclaration)
+            , HashMap String (TMethod, MethodDeclaration)
+          )
+        )
+    }
 
+type Name = String
+data TypeError
+    = NotDeclared Name Position
+    | DuplicateDeclaration Name Position Position
+    | Unification TType TType Position
+    | InvalidAddOperands TType TType Position
+    | InvalidThis Position
+    | InvalidEq Position
+    | InvalidNumOperands TType TType Position
+derive Show TypeError
+derive Eq TypeError
+type TypeCheck a = Accumulate [TypeError] a
+
+{-
 tType :: Type -> TType
 tType Bool = TBool
 tType Int = TInt
 tType String = TString
 tType Unit = TUnit
 tType (User id) = TClass (id.str)
+-}
 
-typeIdentifier :: Context -> Identifier -> TypeCheck TType
-typeIdentifier context identifier
+typeVar :: Environment -> Identifier -> TypeCheck TType
+typeVar environment identifier
     = maybe
-        (report1 ("Not declared: "++ identifier.str, identifier.pos))
-        pure
-        (lookup (identifier.str) context)
+        (report1 $ NotDeclared identifier.str identifier.pos)
+        (pure . fst)
+        (lookup (identifier.str) environment.vars)
 
 unify :: TType -> TType -> Position -> TypeCheck TType
 unify t t2 pos =
-    if t == t2 -- TODO: Change to least upper bound of t and t2
+    if t == t2 -- TODO: Change to upper bound of t2 is upper bound of t
         then pure t
-        else report1 $ ("Cannot unify type " ++ show t ++ " with " ++ show t2, pos)
+        else report1 $ (Unification t t2 pos)
 
 assertType :: TType -> TypeCheck TType -> Position -> TypeCheck TType
 assertType t result pos = case result of
@@ -53,76 +81,86 @@ assertEqual res1 res2 pos = case (res1, res2) of
     (ARight t, ARight t2) -> unify t t2 pos
     _ -> res1 *> res2 -- this will merge the errors from the results
 
-typeBinaryOp :: Context -> BinOp -> Expression -> Expression -> Position -> TypeCheck TType
-typeBinaryOp context Plus lhs rhs pos
-    = case (typeExpression context lhs, typeExpression context rhs) of
+typeBinaryOp :: Environment -> BinOp -> Expression -> Expression -> Position -> TypeCheck TType
+typeBinaryOp environment Plus lhs rhs pos
+    = case (typeExpression environment lhs, typeExpression environment rhs) of
         (ARight TInt, ARight TInt) -> pure TInt
         (ARight TInt, ARight TString) -> pure TString
         (ARight TString, ARight TInt) -> pure TString
         (ARight TString, ARight TString) -> pure TString
-        (ARight t, ARight t2) -> report1 $ ("Expected add operand types, got: " ++ show t ++ " + " ++ show t2, pos)
+        (ARight t, ARight t2) -> report1 (InvalidAddOperands t t2 pos)
         (res1, res2) -> res1 *> res2
-typeBinaryOp context And lhs rhs pos
-    = assertType TBool (typeExpression context lhs) pos
-    *> assertType TBool (typeExpression context rhs) pos
-typeBinaryOp context Or lhs rhs pos
-    = assertType TBool (typeExpression context lhs) pos
-    *> assertType TBool (typeExpression context rhs) pos
-typeBinaryOp context Equals lhs rhs pos
-    = case (typeExpression context lhs, typeExpression context rhs) of
-        (ARight (TClass _), ARight (TClass _)) -> pure TBool
-        (ARight (TClass _), ARight _) -> report1 ("fail to ", pos)
-        (ARight _, ARight (TClass _)) -> report1 ("fail to ", pos)
+typeBinaryOp environment And lhs rhs pos
+    = assertType TBool (typeExpression environment lhs) pos
+    *> assertType TBool (typeExpression environment rhs) pos
+typeBinaryOp environment Or lhs rhs pos
+    = assertType TBool (typeExpression environment lhs) pos
+    *> assertType TBool (typeExpression environment rhs) pos
+typeBinaryOp environment Equals lhs rhs pos
+    = case (typeExpression environment lhs, typeExpression environment rhs) of
+        (ARight (TClass _ _), ARight (TClass _ _)) -> pure TBool
+        (ARight (TClass _ _), ARight _) -> report1 (InvalidEq pos)
+        (ARight _, ARight (TClass _ _)) -> report1 (InvalidEq pos)
         (ARight t, ARight t2)  -> unify t t2 pos
         (res1, res2) -> res1 *> res2
-typeBinaryOp context LessThan lhs rhs pos
-    = typeBinaryOp context Equals lhs rhs pos -- same rules as for equality
-typeBinaryOp context Minus lhs rhs pos
-    = case (typeExpression context lhs, typeExpression context rhs) of
+typeBinaryOp environment LessThan lhs rhs pos
+    = typeBinaryOp environment Equals lhs rhs pos -- same rules as for equality
+typeBinaryOp environment Minus lhs rhs pos
+    = case (typeExpression environment lhs, typeExpression environment rhs) of
         (ARight TInt, ARight TInt) -> pure TInt
-        (ARight t, ARight t2) -> report1 ("Expected numeric types, got: " ++ show t ++ " and " ++ show t2, pos)
+        (ARight t, ARight t2) -> report1 (InvalidNumOperands t t2 pos)
         (res1, res2) -> res1 *> res2
-typeBinaryOp context Times lhs rhs pos
-    = typeBinaryOp context Minus lhs rhs pos
-typeBinaryOp context Div lhs rhs pos
-    = typeBinaryOp context Minus lhs rhs pos
+typeBinaryOp environment Times lhs rhs pos
+    = typeBinaryOp environment Minus lhs rhs pos
+typeBinaryOp environment Div lhs rhs pos
+    = typeBinaryOp environment Minus lhs rhs pos
 
-typeExpression :: Context -> Expression -> TypeCheck TType
+getClass :: Environment -> String -> Position -> TypeCheck TType
+getClass environment obj pos
+    = maybe
+        (report1 (NotDeclared obj pos))
+        (pure . fst)
+        (lookup obj (environment.classes))
+
+typeExpression :: Environment -> Expression -> TypeCheck TType
 typeExpression _ (LitInt{}) = pure TInt
 typeExpression _ (LitString{}) = pure TString
 typeExpression _ (LitTrue{}) = pure TBool
 typeExpression _ (LitFalse{}) = pure TBool
 typeExpression _ (LitNull{}) = pure TUnit
-typeExpression _ (New{obj}) = pure (TClass obj.str)
-typeExpression context (Identifier{id})
-    = typeIdentifier context id
-typeExpression context (LitThis pos)
-    = maybe (report1 $ ("this outside of class declaration", pos)) pure (lookup "this" context)
-typeExpression context (BinOp{lhs, op, rhs, pos}) = typeBinaryOp context op lhs rhs pos
-typeExpression context (Not {expr, pos})
-    = assertType TBool (typeExpression context expr) pos
-typeExpression context (Block es _)
-    = fmap last $ traverse (typeExpression context) es
-typeExpression context (If predicate body Nothing pos)
-    = assertType TBool (typeExpression context predicate) pos
-    *> typeExpression context body
-typeExpression context (If predicate body (Just elseBody) pos)
-    = assertType TBool (typeExpression context predicate) pos
-    *> assertEqual (typeExpression context body) (typeExpression context elseBody) pos
-typeExpression context (While {predicate, body, pos})
-    = assertType TBool (typeExpression context predicate) pos
-    *> typeExpression context body
-typeExpression context (Println {expr})
-    = typeExpression context expr
+typeExpression environment (New{obj, pos}) = getClass environment (obj.str) pos
+typeExpression environment (Identifier{id})
+    = typeVar environment id
+typeExpression environment (LitThis pos)
+    = maybe
+        (report1 (InvalidThis pos))
+        (pure . fst)
+        (lookup "this" environment.vars)
+typeExpression environment (BinOp{lhs, op, rhs, pos}) = typeBinaryOp environment op lhs rhs pos
+typeExpression environment (Not {expr, pos})
+    = assertType TBool (typeExpression environment expr) pos
+typeExpression environment (Block es _)
+    = fmap last $ traverse (typeExpression environment) es
+typeExpression environment (If predicate body Nothing pos)
+    = assertType TBool (typeExpression environment predicate) pos
+    *> typeExpression environment body
+typeExpression environment (If predicate body (Just elseBody) pos)
+    = assertType TBool (typeExpression environment predicate) pos
+    *> assertEqual (typeExpression environment body) (typeExpression environment elseBody) pos
+typeExpression environment (While {predicate, body, pos})
+    = assertType TBool (typeExpression environment predicate) pos
+    *> typeExpression environment body
+typeExpression environment (Println {expr})
+    = typeExpression environment expr
     *> pure TUnit
-typeExpression context (Assign {var, expr, pos})
-    = typeIdentifier context var
-    *> typeExpression context expr
+typeExpression environment (Assign {var, expr, pos})
+    = typeVar environment var
+    *> typeExpression environment expr
 
 typecheck
     = missing baseClass extends
     *> cycleChecks is
-    *> (mapError show $ typeIdentifier (empty) (ID "asd" initialPosition))
+    *> (mapError show $ typeVar (Env empty empty empty) (ID "asd" initialPosition))
     where
         baseClass = "Any"
         extends = fromList [("a", "b"), ("b", "c"), ("c", "a"), ("d", "a"), ("e", "Any"), ("f", "e"), ("h", "missing")]
@@ -141,11 +179,14 @@ pos = initialPosition
 
 main = do
     println typecheck
-    println $ typeIdentifier empty (ID "asd" pos)
-    println $ typeIdentifier (fromList [("asd", TInt)]) (ID "asd" pos)
-    println $ typeExpression empty (Block [LitInt 2 pos, LitString "asd" pos] pos)
-    println . fmap (typeExpression empty) $ parseCode "if (true) {3;5} else 4" (expression <* tokenEOF)
-    println . fmap (typeExpression empty) $ parseCode "if (false) {3;false} else true" (expression <* tokenEOF)
-    println . fmap (typeExpression empty) $ parseCode "2 + 3" (expression <* tokenEOF)
-    println . fmap (typeExpression empty) $ parseCode "2 + \"3\"" (expression <* tokenEOF)
-    println . fmap (typeExpression empty) $ parseCode "    true + \"3\"" (expression <* tokenEOF)
+    println $ typeVar (Env empty empty empty) (ID "asd" pos)
+    println $ typeVar (Env (fromList [("asd", (TInt, undefined))]) empty empty) (ID "asd" pos)
+    println $ typeExpression (Env empty empty empty) (Block [LitInt 2 pos, LitString "asd" pos] pos)
+    println . fmap (typeExpression (Env empty empty empty)) $ parseCode "if (true) {3;5} else 4" (expression <* tokenEOF)
+    println . fmap (typeExpression (Env empty empty empty)) $ parseCode "if (false) {3;false} else true" (expression <* tokenEOF)
+    println . fmap (typeExpression (Env empty empty empty)) $ parseCode "2 + 3" (expression <* tokenEOF)
+    println . fmap (typeExpression (Env empty empty empty)) $ parseCode "2 + \"3\"" (expression <* tokenEOF)
+    println . fmap (typeExpression (Env empty empty empty)) $ parseCode "    true + \"3\"" (expression <* tokenEOF)
+    println . fmap (typeExpression (Env (fromList [("x", (TString, undefined))]) empty empty)) $ parseCode "2 + x" (expression <* tokenEOF)
+    println . fmap (typeExpression (Env (fromList [("x", (TBool, undefined))]) empty empty)) $ parseCode "2 + x" (expression <* tokenEOF)
+
