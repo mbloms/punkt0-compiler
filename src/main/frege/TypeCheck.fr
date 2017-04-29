@@ -1,4 +1,9 @@
 module punkt0.TypeCheck where
+
+b = b
+
+{-
+
 import punkt0.Analyzer
 import Data.HashMap
 import punkt0.Positioned
@@ -11,30 +16,34 @@ import lexer.Lexer(scanTokens, FileIterator)
 import parser.Parser(parse)
 import punkt0.lexer.Tokens as Tokens()
 
+
 data TType
     = TBool
     | TInt
     | TString
     | TUnit
-    | TClass {name :: String, extends :: HashSet String}
-
-data TMethod = TMethod ([TType], TType)
-
+    | TClass String
+    | TMethod ([TType], TType)
 derive Show TType
 derive Eq TType
 
-data Environment
-    = Env
-    { vars :: HashMap String (TType, VarDeclaration)
-    , methods :: HashMap String (TMethod, MethodDeclaration)
-    , classes :: HashMap String
-        ( TType
-        , (ClassDeclaration
-            , HashMap String (TType, VarDeclaration)
-            , HashMap String (TMethod, MethodDeclaration)
-          )
-        )
-    }
+class Typed g where
+    typeOf :: g -> TType
+
+instance Typed ClassDeclaration where
+    typeOf (Class{name}) = TClass name
+
+ttype :: Type -> TType
+ttype Int = TInt
+ttype String = TString
+ttype Unit = TUnit
+ttype (User name) = TClass name
+
+instance Typed VarDeclaration where
+    typeOf (Var{varType}) = ttype varType
+
+instance Typed VarDeclaration where
+    typeOf (Class{name}) = TClass name
 
 type Name = String
 data TypeError
@@ -47,19 +56,10 @@ data TypeError
     | InvalidNumOperands TType TType Position
 derive Show TypeError
 derive Eq TypeError
-type TypeCheck a = Accumulate [TypeError] a
+type TypeCheck a = Environment -> Accumulate [TypeError] a
 
-{-
-tType :: Type -> TType
-tType Bool = TBool
-tType Int = TInt
-tType String = TString
-tType Unit = TUnit
-tType (User id) = TClass (id.str)
--}
-
-typeVar :: Environment -> Identifier -> TypeCheck TType
-typeVar environment identifier
+typeVar :: Identifier -> TypeCheck TType
+typeVar identifier
     = maybe
         (report1 $ NotDeclared identifier.str identifier.pos)
         (pure . fst)
@@ -166,14 +166,6 @@ typecheck
         extends = fromList [("a", "b"), ("b", "c"), ("c", "a"), ("d", "a"), ("e", "Any"), ("f", "e"), ("h", "missing")]
         is = inheritance baseClass extends
 
-parseCode code parser =
-    let
-        tokens = (scanTokens Tokens.token) . FileIterator.from $ code
-        parsed = parse parser tokens
-    in case parsed of
-        Right ([], parseTree) -> Just parseTree
-        Right (_, parseTree) -> Just parseTree
-        _ -> Nothing
 
 pos = initialPosition
 
@@ -190,3 +182,4 @@ main = do
     println . fmap (typeExpression (Env (fromList [("x", (TString, undefined))]) empty empty)) $ parseCode "2 + x" (expression <* tokenEOF)
     println . fmap (typeExpression (Env (fromList [("x", (TBool, undefined))]) empty empty)) $ parseCode "2 + x" (expression <* tokenEOF)
 
+-}

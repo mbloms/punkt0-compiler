@@ -2,7 +2,7 @@ module punkt0.parser.Grammar where
 import punkt0.ScalaShow
 import parser.Parser
 import punkt0.Positioned
-import lexer.Lexer(Lexeme())
+import lexer.Lexer(Lexeme(), FileIterator, scanTokens)
 import punkt0.lexer.Tokens as Tokens(Token(), getIdentifierString, getLiteral, isLiteral)
 
 type Lex = Lexeme Token
@@ -164,10 +164,21 @@ typeParser =
     <|> (tokenType Tokens.UnitType *> pure Unit)
     <|> (fmap User identifier)
 
+data SymbolType
+    = ClassSymbol
+    | FieldSymbol
+    | MethodSymbol
+    | LocalSymbol Int
+derive Show SymbolType
+derive Eq SymbolType
+
 data Identifier
     = ID {str :: String, pos :: Position}
+    | Symbol Int SymbolType Identifier
 derive Eq Identifier
 derive Show Identifier
+instance Ord Identifier where
+    (ID a _) <=> (ID b _) = a <=> b
 
 instance Positioned Identifier where
     position (ID _ pos) = pos
@@ -420,3 +431,12 @@ instance ScalaShow Type where
     scalashow String = "StringType()"
     scalashow Unit = "UnitType()"
     scalashow (User x) = scalashow x
+
+parseCode parser code =
+    let
+        tokens = (scanTokens Tokens.token) . FileIterator.from $ code
+        parsed = parse parser tokens
+    in case parsed of
+        Right ([], parseTree) -> Just parseTree
+        Right (_, parseTree) -> Just parseTree
+        _ -> Nothing

@@ -1,0 +1,25 @@
+
+class A {
+    var x : Int = 0;
+    var y : Int = 0;
+    var z : Int = 0;
+    def a() : Int = {
+        var t : Int = 0;
+        t
+    }
+}
+
+class B {
+    var x : Int = 0;
+    var y : Int = 0;
+    var z : Int = 0;
+    def foo(x : Int) : Int = {
+        var xLocal : Int = 0;
+        x + y
+    }
+}
+
+object Main extends App {
+    var final : Int = 42;
+    0
+}
