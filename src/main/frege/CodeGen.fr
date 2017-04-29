@@ -1,0 +1,93 @@
+module punkt0.CodeGen where
+a = a
+{-
+import punkt0.parser.Grammar
+
+type ClassName = String
+type QualifiedClass = String
+type FieldName = String
+type Method = String
+type VarId = Int
+
+data Instruction
+    = LineNum Int
+    | Push Int
+    | IConst Int
+    | ILoad VarId
+    | ALoad VarId
+    | IAdd
+    | StoreInt Int
+    | IntStringBuilder
+    | StringAppend
+    | Invoke QualifiedClass Method TType
+    | DefaultNew QualifiedClass
+    | GetStatic QualifiedClass FieldName TType
+    | Branch
+        { pred :: [Instruction]
+        , thenBody :: [Instruction]
+        , elseBody :: [Instruction]
+        }
+    | Loop
+        { pred :: [Instruction]
+        , body :: [Instruction]
+        }
+
+data Field
+    = Field
+        { type :: TType
+        , name :: FieldName
+        , code :: [Instruction]
+        }
+
+data Field
+    = Field
+        { type :: TType
+        , name :: FieldName
+        , code :: [Instruction]
+        }
+
+data Class
+    = Class
+        { name :: ClassName
+        , extends :: Maybe QualifiedClass
+        , fields :: [Field]
+        , methods :: [Mehtod]
+        }
+
+compileProgram :: Program -> [Instruction]
+compileProgram (Program classes main _)
+    = concatMap compileClass classes ++ compileMain main
+
+compileClass :: ClassDeclaration -> [Instruction]
+
+compileVar :: VarDeclaration -> [Instruction]
+compileVar (Var (Symbol i _ _) t expr _)
+    | t == Int || t == Bool = compileExpression expr ++ [IStore i]
+    | t == User || t == String = compileExpression expr ++ [AStore i]
+
+compileExpression :: Expression -> [Instruction]
+compileExpression (TypedExpr TInt (Identifier (Symbol i _ _) _)) = ILoad i
+compileExpression (TypedExpr TString (Identifier (Symbol i _ _) _)) = ALoad i
+compileExpression (TypedExpr TInt (BinOp ((TypedExpr TInt e1) Add (TypedExpr TInt e2 _)) _))
+    = compileExpression e2 ++ compileExpression e1 ++ [IAdd]
+compileExpression (TypedExpr TString (BinOp ((TypedExpr TInt e1) Add (TypedExpr TString e2 _)) _))
+    = compileExpression e2 ++ [IntStringBuilder] ++ compileExpression e1 ++ [StringAppend]
+compileExpression (TypedExpr TString (BinOp ((TypedExpr TString e1) Add (TypedExpr TInt e2 _)) _))
+    = compileExpression e2 ++ compileExpression e1 ++ [IntStringBuilder, StringAppend]
+compileExpression (TypedExpr TString (BinOp ((TypedExpr TString e1) Add (TypedExpr TString e2 _)) _))
+    = compileExpression e2 ++ compileExpression e1 ++ [StringAppend]
+compileExpression (TypedExpr returnType (MethodCall c method args _))
+    = compileExpression c ++ fmap compileExpression args ++ [Invoke classType method returnType]
+compileExpression (TypedExpr (TClass classType _) (New obj _))
+    = [DefaultNew classType]
+compileExpression (TypedExpr _ expr)
+    = compileExpression expr
+compileExpression (Println (Typed t expr))
+    = [GetStatic "java/lang/System" "out" (TClass "java/io/PrintStream" empty)]
+    ++ compileExpression expr
+    ++ [Invoke "java/io/PrintStream" "println" t]
+compileExpression (LitInt i _) = [Push i]
+compileExpression (LitString s _) = [SLoad s]
+compileExpression (LitFalse _) = [IConst 0]
+compileExpression (LitTrue _) = [IConst 1]
+-}

@@ -2,7 +2,11 @@ module punkt0.Analyzer where
 import Data.HashMap
 import punkt0.Reporter
 import Data.Traversable(traverse)
-import Data.List(sort)
+import Data.List(sort, partition, group)
+import punkt0.Positioned
+import punkt0.parser.Grammar
+import Control.monad.State
+
 
 -- | Simulate HashSet using a HashMap with values as unit ()
 type HashSet a = HashMap a ()
@@ -11,16 +15,86 @@ add :: Eq a => a -> HashSet a -> HashSet a
 add x = insert x ()
 
 type ClassName = String
+type VarName = String
+type MethodName = String
 type Extends a = HashMap a a
 type Inheritance a = HashMap a [a]
 
+data Environment
+    = Env
+    { supers :: HashMap ClassName (HashSet ClassName)
+    , classes :: HashMap ClassName ClassDeclaration
+    , fields :: HashMap VarName VarDeclaration
+    , methods :: HashMap MethodName MethodDeclaration
+    , parameters :: HashMap VarName (Identifier, Type)
+    , locals :: HashMap VarName VarDeclaration
+    , symbol :: Int
+    }
+derive Eq Environment
+
+class Named t where
+    nameOf :: t -> String
+
+class WithId t where
+    idOf :: t -> Identifier
+    setId :: Identifier -> t -> t
+
+instance WithId ClassDeclaration where
+    idOf (Class{name}) = name
+    setId name c = c.{name=name}
+
+instance WithId MethodDeclaration where
+    idOf (MethodDeclaration{name}) = name
+    setId name v = v.{name=name}
+
+instance WithId VarDeclaration where
+    idOf (Var{name}) = name
+    setId name v = v.{name=name}
+
+instance Named String where
+    nameOf = id
+
+instance Named Identifier where
+    nameOf (ID n _) = n
+
+instance Named ClassDeclaration where
+    nameOf (Class{name=id}) = nameOf id
+
+instance Named VarDeclaration where
+    nameOf (Var{name=id}) = nameOf id
+
+instance Named MethodDeclaration where
+    nameOf (MethodDeclaration{name=id}) = nameOf id
+
+instance Named a => Named (a, Position) where
+    nameOf (a, _) = nameOf a
+
+instance Positioned (a, Position) where
+    position (_, pos) = pos
+
+data AnalyzeError
+    = NoSuchClass ClassName Position
+    | CyclicDependencies ClassName Position
+    | DuplicateDeclaration [Identifier]
+derive Show AnalyzeError
+derive Eq AnalyzeError
+
+type Analyze a = Accumulate [AnalyzeError] a
+
 -- | Find missing classes
-missing :: (Show a, Eq a) => a -> Extends a -> Accumulate [String] ()
-missing baseClass extends = traverse checkExists extends *> pure ()
+missing :: (Named a, Eq a, Positioned a) => a -> HashSet a -> Extends a -> Analyze ()
+missing baseClass declared extends = traverse checkExists extends *> ok
     where
+        ok = pure ()
         checkExists super
-            | super == baseClass = pure ()
-            | otherwise = maybe (report1 $ "No such class "++ show super) (const $ pure ()) (lookup super extends)
+            | super == baseClass = ok
+            | otherwise
+                = maybe
+                    (if super `member` declared
+                        then ok
+                        else report1 (NoSuchClass (nameOf super) (position super)))
+                    (const ok)
+                    (lookup super extends)
 
 -- | Expand inheritance chain
 inheritance :: Eq a => a -> Extends a -> Inheritance a
@@ -30,16 +104,17 @@ inheritance baseClass extends = result
         supers super = maybe [super] (super :) (lookup super result)
 
 -- | Verify non-existance of circular dependencies
-cycleChecks :: (Eq a, Show a, Ord a) => Inheritance a -> Accumulate [String] (Inheritance a)
-cycleChecks map = traverse (\clas -> report1 $ "The class "++show clas++" has cyclic dependencies") (sort $ keys withCycles) *> pure map
+cycleChecks :: (Named a, Eq a, Positioned a) => Inheritance a -> Analyze (Inheritance a)
+cycleChecks map = traverse throwCyclic (keys withCycles) *> pure map
     where
         -- set of all classes that have circular dependencies
+        throwCyclic c = report1 (CyclicDependencies (nameOf c) (position c))
         withCycles = foldWithKey findCycles empty map
-        findCycles :: Eq a => HashSet a -> a -> [a] -> HashSet a
+        findCycles :: (Named a, Eq a) => HashSet a -> a -> [a] -> HashSet a
         findCycles cycles c supers
             = if c `member` cycles
                 then cycles
-                else cycles `union` cycleCheck empty (c:supers)
+                else cycles `union` cycleCheck empty supers
         -- check for cycle in list of classes
         cycleCheck :: Eq a => HashSet a -> [a] -> HashSet a
         cycleCheck _ [] = empty -- no cycle found, return empty set
@@ -48,3 +123,127 @@ cycleChecks map = traverse (\clas -> report1 $ "The class "++show clas++" has cy
                 then visited -- return set of all visited classes so far (all of them must be cyclic)
                 else cycleCheck (add c visited) cs
 
+namePos :: (Named a, Positioned a) => a -> (String, Position)
+namePos decl = (nameOf decl, position decl)
+
+toSet :: Eq a => [a] -> HashSet a
+toSet xs = fromList $ fmap (\x -> (x, ())) xs
+
+toSupers :: Named a => Inheritance a -> HashMap String (HashSet String)
+toSupers inh = fromList . fmap convertOne $ each inh
+    where
+        convertOne (base, supers) = (nameOf base, toSet . fmap nameOf $ supers)
+
+checkDependencies :: Program -> Analyze Environment
+checkDependencies (Program classes _ _)
+    = missing baseClass declared extends
+    *> fmap setSupers (cycleChecks (inheritance baseClass extends))
+        where
+            (withExtend, declaredClasses) = partition (\c -> isJust $ c.extends) classes
+            declared = toSet $ fmap namePos declaredClasses
+            noExtends = fmap (const []) declared
+            baseClass = ("Any", initialPosition)
+            pair c = (namePos c, parent c)
+            parent c = namePos . unJust $ c.extends
+            extends = (fromList . fmap pair $ withExtend)
+            setSupers inh
+                = Env
+                    { supers=toSupers (inh `union` noExtends)
+                    , classes=empty
+                    , fields=empty
+                    , methods=empty
+                    , parameters=empty
+                    , locals=empty
+                    , symbol = 0
+                    }
+
+namedMap :: (Named a) => [a] -> HashMap String a
+namedMap xs = fromList $ fmap (\x -> (nameOf x, x)) xs
+
+noDups :: (WithId a) => [a] -> Analyze ()
+noDups xs = errors *> ok
+    where
+        ok = pure ()
+        errors = traverse (\dup -> report1 (DuplicateDeclaration dup)) dups
+        hasDups [] = False
+        hasDups [x] = False
+        hasDups (x:y:_) = True
+        dups = filter hasDups grouped
+        grouped = group (sort $ fmap idOf xs)
+
+tagIds :: (WithId a) => (Int -> SymbolType) -> Environment -> [a] -> (Int, [a])
+tagIds symbolType env xs = (i' + env.symbol, xs')
+    where
+        (i', xs') = foldr (\c (i,cs) -> (i+1, tagId (l-i-1) c : cs)) (0, []) xs
+        l = length xs
+        tagId i c = setId (Symbol (env.symbol+i) (symbolType i) (idOf c)) c
+
+-- TODO: Replace identifiers with symbols from the environment
+symbolizeExpression :: Environment -> Expression -> Analyze Expression
+symbolizeExpression env expr = pure expr
+
+symbolizeField :: Environment -> VarDeclaration -> Analyze VarDeclaration
+symbolizeField env (v@Var{expr}) = fmap (v.{expr=}) (symbolizeExpression env expr)
+
+symbolizeMethod :: Environment -> MethodDeclaration -> Analyze (Int, MethodDeclaration)
+symbolizeMethod env (m@MethodDeclaration{args,vars}) = pure (i, m.{vars=vars'})
+    where
+        (i, vars') = tagIds (\l -> LocalSymbol (l+1)) env vars
+
+symbolizeClass :: Environment -> ClassDeclaration -> Analyze (Int, ClassDeclaration)
+symbolizeClass env (Class name extends vars methods pos)
+    = noDups vars
+    *> fmap createClass (traverse (symbolizeField env') vars') <*> (symbolizeNested symbolizeMethod env' methods') <*> pure pos
+    where
+        (i, vars') = tagIds (const FieldSymbol) env vars
+        (j, methods') = tagIds (const MethodSymbol) (env.{symbol=i}) methods
+        createClass vs (k,ms) p = (k, Class name extends vs ms p)
+        env' = env.{fields=namedMap vars',methods=namedMap methods', symbol = j}
+
+symbolizeMain :: Environment -> MainDeclaration -> Analyze MainDeclaration
+symbolizeMain env (main@Main{vars, body, pos}) =
+    fmap (\(Block b _) -> main.{body=b, vars=vars'}) (symbolizeExpression env' (Block body pos))
+    where
+        (i, vars') = tagIds LocalSymbol env vars
+        env' = env.{locals=namedMap vars',symbol=i}
+
+symbolizeNested :: (Environment -> a -> Analyze (Int, a)) -> Environment -> [a] -> Analyze (Int, [a])
+symbolizeNested nested env xs = symbolizeNested' (env.symbol) xs []
+    where
+        symbolizeNested' i [] acc = pure (i, reverse acc)
+        symbolizeNested' i (c:cs) acc = case nested env.{symbol=i} c of
+            ARight (i', c') -> symbolizeNested' i' cs (c':acc)
+            ALeft errors -> ALeft errors *> symbolizeNested' i cs acc
+
+symbolizeNested_ f env xs = fmap snd (symbolizeNested f env xs)
+
+tagMain i (main@Main{name})
+    = main.{name=Symbol i ClassSymbol name}
+
+-- | symbolize semantically verifies names
+-- | in the program and rewrites the program
+-- | to include information about naming for
+-- | identifiers
+symbolize :: Environment -> Program -> Analyze Program
+symbolize env (Program classes main pos)
+    = noDups classes
+    *> case (symbolizeNested symbolizeClass env' classes') of
+        ARight (j, cs) -> fmap (Program cs) (symbolizeMain (env'.{symbol=j}) main') <*> pure pos
+        ALeft errors -> ALeft errors <* symbolizeMain env' main'
+        where
+            (i, classes') = tagIds (const ClassSymbol) env classes
+            main' = tagMain i main
+            env' = env.{ classes=namedMap classes', symbol = i+1}
+
+getSupers :: Environment -> HashMap ClassName (HashSet ClassName)
+getSupers env = env.supers
+
+analyzer program = case checkDependencies program of
+    ARight env -> symbolize env program
+    ALeft errors -> ALeft errors
+
+runAnalyzer = fmap analyzer . (parseCode program)
+
+main :: [String] -> IO ()
+main [] = getContents >>= print . runAnalyzer
+main (file:_) = readFile file >>= print . runAnalyzer

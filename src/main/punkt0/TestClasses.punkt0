@@ -1,0 +1,14 @@
+class A {
+    var bar : Int = 3;
+}
+
+class B extends A {
+    //var bar : Int = 5;
+    def foo() : Int = {
+        bar
+    }
+}
+
+object Main extends App {
+    println(new B().foo());
+}
