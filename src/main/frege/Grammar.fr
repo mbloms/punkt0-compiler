@@ -182,6 +182,7 @@ instance Ord Identifier where
 
 instance Positioned Identifier where
     position (ID _ pos) = pos
+    position (Symbol _ _ id) = position id
 
 identifier :: Parser Lex Identifier
 identifier =
