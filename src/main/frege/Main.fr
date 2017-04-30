@@ -11,6 +11,8 @@ import Data.Traversable(traverse)
 import punkt0.parser.Pretty (prettyPrint)
 import punkt0.Positioned
 import punkt0.ScalaShow
+import punkt0.Analyzer
+import punkt0.Errors
 
 tokens :: String -> [Lexeme Token]
 tokens = (scanTokens token) . FileIterator.from
@@ -18,38 +20,31 @@ tokens = (scanTokens token) . FileIterator.from
 isBad (Bad _) = true
 isBad _ = false
 
-showErrorAt :: [String] -> Position -> String
-showErrorAt contentLines pos = unlines
-    [ "Error, invalid token at " ++ show pos ++ ":"
-    , contentLines !! (pos.line - 1)
-    , packed $ replicate (pos.col - 1) ' ' ++ ['^']
-    ]
 
-tokenPhase :: Maybe String -> Phase [Lexeme Token]
+tokenPhase :: Maybe String -> Phase (String, [Lexeme Token])
 tokenPhase file =
     phase $ fmap tokenize (input file)
     where
-        tokenize :: String -> Accumulate [String] [Lexeme Token]
+        tokenize :: String -> Accumulate [String] (String, [Lexeme Token])
         tokenize str =
             let
-                contentLines = lines str
                 tokens = (scanTokens token) . FileIterator.from $ str
                 bads = filter isBad tokens
-                errors = map (showErrorAt contentLines . _.position) bads
-                reportErrors = traverse report1 errors
-            in reportErrors *> pure tokens
+                errors = fmap (\bad -> ("invalid token at", bad)) bads
+            in reportErrors str errors *> pure (str, tokens)
         input :: Maybe String -> IO String
         input file = case file of
             Nothing -> getContents
             (Just name) -> readFile name
 
-parsePhase :: [Lexeme Token] -> Phase Program
-parsePhase tokens =
-    let result = program.run $ tokens
-    in phase $ pure $ case result of
-        Left err = reportMany err
-        Right ([],p) = pure p
-        Right ((t:_), _) = report1 $ "unexpected" ++ scalashow t
+parsePhase :: (String, [Lexeme Token]) -> Phase (String, Program)
+parsePhase (input, tokens) =
+    let result = program.run tokens
+    in phase $ pure $
+        case result of
+            Left err = reportMany err
+            Right ([],p) = pure (input, p)
+            Right ((t:_), _) = report1 $ "unexpected" ++ scalashow t
 
 displayHelp :: IO ()
 displayHelp = print "Well. Don't ask me."
@@ -67,9 +62,11 @@ main args
             context = parseFlags args defaultContext
             tokens = tokenPhase context.file
             parseTree = tokens >>= parsePhase
+            withSymbols = parseTree >>= analysisPhase
             phases = do
-                when context.tokens ((runPhase tokens) >>= (runIO $ mapM_ $ println . scalashow))
-                when context.ast ((runPhase parseTree) >>= (runIO $ println . scalashow))
-                when context.pretty ((runPhase parseTree) >>= (runIO $ println . prettyPrint))
+                when context.tokens $ runPhase tokens >>= runIO (mapM_ (println . scalashow) . snd)
+                when context.ast $ runPhase parseTree >>= runIO (println . scalashow . snd)
+                when (context.pretty && not context.symbolIds) $ runPhase parseTree >>= runIO (println . prettyPrint . snd)
+                when (context.pretty && context.symbolIds) $ runPhase withSymbols >>= runIO (println . prettyPrint . snd)
         in phases
 

@@ -9,14 +9,23 @@ class A {
     }
 }
 
-class B {
+class B extends A {
     var x : Int = 0;
     var y : Int = 0;
     var z : Int = 0;
+    var foo : Int = 0;
     def foo(x : Int) : Int = {
         var xLocal : Int = 0;
         x + y
     }
+    override def f(x : Int) : Int = {
+        4 + x
+    }
+}
+
+class C extends A {
+    var a : Int = 0;
+    def foo() : Int = {3}
 }
 
 object Main extends App {

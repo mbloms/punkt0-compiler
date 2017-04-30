@@ -1,0 +1,22 @@
+module punkt0.Errors where
+import punkt0.Reporter
+import punkt0.Positioned
+import punkt0.ScalaShow
+import Data.Traversable(traverse)
+
+showCursorAt :: [String] -> Position -> [String]
+showCursorAt contentLines pos =
+    [ contentLines !! (pos.line - 1)
+    , packed $ replicate (pos.col - 1) ' ' ++ ['^']
+    ]
+
+showErrorAt :: [String] -> String -> Position -> String
+showErrorAt contentLines msg pos
+    = unlines $
+        "Error: " ++ msg ++ " " ++ scalashow pos ++ ":"
+        : showCursorAt contentLines pos
+
+reportErrors :: (Positioned e) => String -> [(String, e)] -> Accumulate [String] ()
+reportErrors str errs =
+    traverse (\(msg,e) -> report1 $ showErrorAt (lines str) msg (position e)) errs
+    *> pure ()
