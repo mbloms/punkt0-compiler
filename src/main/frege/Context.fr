@@ -20,5 +20,6 @@ parseFlags ("--help":args) context = parseFlags args context.{help=true}
 parseFlags ("--tokens":args) context = parseFlags args context.{tokens=true}
 parseFlags ("--ast":args) context = parseFlags args context.{ast=true}
 parseFlags ("--print":args) context = parseFlags args context.{pretty=true}
+parseFlags ("--symid":args) context = parseFlags args context.{symbolIds=true}
 parseFlags (file:args) context = parseFlags args context.{file=Just file}
 
