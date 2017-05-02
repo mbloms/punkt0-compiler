@@ -16,3 +16,6 @@ instance Eq Position where
 
 class Positioned t where
     position :: t -> Position
+
+instance Positioned (a, Position) where
+    position (_, pos) = pos
