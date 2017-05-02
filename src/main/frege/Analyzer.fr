@@ -226,7 +226,7 @@ leastCommonType env pos t1 t2
 -- Unify type when applying arguments to method call
 applyUnify :: Environment -> Position -> TType -> [TType] -> Analyze TType
 applyUnify env pos (TMethod (tparams, treturn)) targs
-    = traverse (\(p,a) -> unify env pos p a) (zip tparams targs)
+    = traverse (\(p,a) -> unify env pos a p) (zip tparams targs)
     *> pure treturn
 applying env pos t _ = report1 $ TypeError $ CallOnNonMethod t pos
 
