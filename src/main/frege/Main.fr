@@ -20,7 +20,6 @@ tokens = (scanTokens token) . FileIterator.from
 isBad (Bad _) = true
 isBad _ = false
 
-
 tokenPhase :: Maybe String -> Phase (String, [Lexeme Token])
 tokenPhase file =
     phase $ fmap tokenize (input file)
@@ -68,5 +67,6 @@ main args
                 when context.ast $ runPhase parseTree >>= runIO (println . scalashow . snd)
                 when (context.pretty && not context.symbolIds) $ runPhase parseTree >>= runIO (println . prettyPrint . snd)
                 when (context.pretty && context.symbolIds) $ runPhase withSymbols >>= runIO (println . prettyPrint . snd)
+                when context.showTypeChecked $ runPhase withSymbols >>= runIO (println . show . snd)
         in phases
 

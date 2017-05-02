@@ -19,6 +19,7 @@ class B extends A {
         x + y
     }
     override def f(x : Int) : Int = {
+        var x : Int = 5;
         4 + x
     }
 }

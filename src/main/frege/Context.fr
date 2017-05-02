@@ -8,10 +8,11 @@ data Context = Context
     , !tokens
     , !ast
     , !symbolIds :: Bool
+    , !showTypeChecked :: Bool
     }
 derive Show Context
 
-defaultContext = Context Nothing Nothing false false false false false false
+defaultContext = Context Nothing Nothing false false false false false false false
 
 parseFlags :: [String] -> Context -> Context
 parseFlags [] context = context
@@ -21,5 +22,6 @@ parseFlags ("--tokens":args) context = parseFlags args context.{tokens=true}
 parseFlags ("--ast":args) context = parseFlags args context.{ast=true}
 parseFlags ("--print":args) context = parseFlags args context.{pretty=true}
 parseFlags ("--symid":args) context = parseFlags args context.{symbolIds=true}
+parseFlags ("--show-typechecked":args) context = parseFlags args context.{showTypeChecked=true}
 parseFlags (file:args) context = parseFlags args context.{file=Just file}
 

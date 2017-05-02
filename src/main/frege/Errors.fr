@@ -13,7 +13,7 @@ showCursorAt contentLines pos =
 showErrorAt :: [String] -> String -> Position -> String
 showErrorAt contentLines msg pos
     = unlines $
-        "Error: " ++ msg ++ " " ++ scalashow pos ++ ":"
+        "Error: " ++ msg ++ " " ++ scalashow pos
         : showCursorAt contentLines pos
 
 reportErrors :: (Positioned e) => String -> [(String, e)] -> Accumulate [String] ()

@@ -16,46 +16,6 @@ import lexer.Lexer(scanTokens, FileIterator)
 import parser.Parser(parse)
 import punkt0.lexer.Tokens as Tokens()
 
-
-data TType
-    = TBool
-    | TInt
-    | TString
-    | TUnit
-    | TClass String
-    | TMethod ([TType], TType)
-derive Show TType
-derive Eq TType
-
-class Typed g where
-    typeOf :: g -> TType
-
-instance Typed ClassDeclaration where
-    typeOf (Class{name}) = TClass name
-
-ttype :: Type -> TType
-ttype Int = TInt
-ttype String = TString
-ttype Unit = TUnit
-ttype (User name) = TClass name
-
-instance Typed VarDeclaration where
-    typeOf (Var{varType}) = ttype varType
-
-instance Typed VarDeclaration where
-    typeOf (Class{name}) = TClass name
-
-type Name = String
-data TypeError
-    = NotDeclared Name Position
-    | DuplicateDeclaration Name Position Position
-    | Unification TType TType Position
-    | InvalidAddOperands TType TType Position
-    | InvalidThis Position
-    | InvalidEq Position
-    | InvalidNumOperands TType TType Position
-derive Show TypeError
-derive Eq TypeError
 type TypeCheck a = Environment -> Accumulate [TypeError] a
 
 typeVar :: Identifier -> TypeCheck TType
