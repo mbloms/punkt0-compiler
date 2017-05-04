@@ -1,10 +1,32 @@
 
-class A extends C {}
+class A extends C {
+    var y : Int = 3;
+    def foo() : Int = {
+        5
+    }
+}
 
-class B extends A {}
+class B extends A {
+    var z : Int = 4;
+    // should only have 4 names anyway
+    override def foo() : Int = {
+        var x : Int = 3;
+        z + y + x
+    }
+    def bar(x : Int) : Int = {
+        this.foo();
+        new x().foo();
+        z
+    }
+}
 
-class C extends B {}
+class C {
+    var x : Boolean = false;
+}
 
 object Main extends App {
+    var x : Int = 3;
+    new A().foo();
+    x;
     1
 }

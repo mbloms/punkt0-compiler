@@ -1,0 +1,79 @@
+module punkt0.analyzer.Inheritance where
+import punkt0.parser.Grammar
+import punkt0.Named
+import punkt0.Typed
+import punkt0.Errors
+import Data.HashMap
+import punkt0.Reporter
+import Data.Traversable(traverse, sequenceA)
+import Data.List(sort, partition, group, find)
+import punkt0.Positioned
+import punkt0.Reporter
+import punkt0.analyzer.Types
+
+-- | Find missing classes
+missing :: (Named a, Eq a, Positioned a) => a -> HashSet a -> Extends a -> Analyze ()
+missing baseClass declared extends = traverse checkExists extends *> ok
+    where
+        ok = pure ()
+        checkExists super
+            | super == baseClass = ok
+            | otherwise
+                = maybe
+                    (if super `member` declared
+                        then ok
+                        else report1 (NoSuchClass (nameOf super) (position super)))
+                    (const ok)
+                    (lookup super extends)
+
+-- | Expand inheritance chain
+inheritance :: Eq a => a -> Extends a -> Inheritance a
+inheritance baseClass extends = result
+    where
+        result = mapValues supers extends
+        supers super = maybe [super] (super :) (lookup super result)
+
+-- | Verify non-existance of circular dependencies
+cycleChecks :: (Named a, Eq a, Positioned a) => Inheritance a -> Analyze (Inheritance a)
+cycleChecks map = traverse throwCyclic (keys withCycles) *> pure map
+    where
+        -- set of all classes that have circular dependencies
+        throwCyclic c = report1 (CyclicDependencies (nameOf c) (position c))
+        withCycles = foldWithKey findCycles empty map
+        findCycles :: (Named a, Eq a) => HashSet a -> a -> [a] -> HashSet a
+        findCycles cycles c supers
+            = if c `member` cycles
+                then cycles
+                else cycles `union` cycleCheck empty supers
+        -- check for cycle in list of classes
+        cycleCheck :: Eq a => HashSet a -> [a] -> HashSet a
+        cycleCheck _ [] = empty -- no cycle found, return empty set
+        cycleCheck visited (c:cs)
+            = if member c visited -- if the class has already been visited there's a cycle
+                then visited -- return set of all visited classes so far (all of them must be cyclic)
+                else cycleCheck (add c visited) cs
+
+namePos :: (Named a, Positioned a) => a -> (String, Position)
+namePos decl = (nameOf decl, position decl)
+
+toSet :: Eq a => [a] -> HashSet a
+toSet xs = fromList $ fmap (\x -> (x, ())) xs
+
+toSupers :: Named a => Inheritance a -> HashMap String (HashSet String)
+toSupers inh = fromList . fmap convertOne $ each inh
+    where
+        convertOne (base, supers) = (nameOf base, toSet . fmap nameOf $ supers)
+
+checkDependencies :: Program -> Analyze (HashMap String (HashSet String))
+checkDependencies (Program classes _ _)
+    = missing baseClass declared extends
+    *> fmap setSupers (cycleChecks (inheritance baseClass extends))
+        where
+            (withExtend, declaredClasses) = partition (\c -> isJust $ c.extends) classes
+            declared = toSet $ fmap namePos declaredClasses
+            noExtends = fmap (const []) declared
+            baseClass = ("Any", initialPosition)
+            pair c = (namePos c, parent c)
+            parent c = namePos . unJust $ c.extends
+            extends = (fromList . fmap pair $ withExtend)
+            setSupers inh = toSupers (inh `union` noExtends)

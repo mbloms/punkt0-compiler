@@ -1,0 +1,79 @@
+module punkt0.analyzer.Types where
+import punkt0.parser.Grammar
+import punkt0.Named
+import punkt0.Typed
+import punkt0.Positioned
+import punkt0.ScalaShow
+import punkt0.Errors
+import Data.HashMap
+import punkt0.Reporter
+
+-- | Simulate HashSet using a HashMap with values as unit ()
+type HashSet a = HashMap a ()
+type Extends a = HashMap a a
+type Inheritance a = HashMap a [a]
+
+add :: Eq a => a -> HashSet a -> HashSet a
+add x = insert x ()
+
+type Name = String
+type ClassName = String
+type VarName = String
+type MethodName = String
+type Interface = (HashMap VarName VarDeclaration, HashMap MethodName MethodDeclaration, HashMap String Identifier)
+
+data TypeError
+    = UnificationError TType TType Position
+    | InvalidAddOperands TType TType Position
+    | InvalidEq Position
+    | InvalidNumOperands TType TType Position
+    | NotAnObject TType Position
+    | CallOnNonMethod TType Position
+    | CannotDeduceType Expression
+derive Show TypeError
+derive Eq TypeError
+
+data AnalyzeError
+    = NoSuchClass ClassName Position
+    | NoSuchMethod ClassName MethodName Position
+    | NotDeclared Name Position
+    | CyclicDependencies ClassName Position
+    | OverloadedField ClassName VarName Position
+    | Override ClassName VarName Position
+    | DuplicateDeclaration [Identifier]
+    | InvalidThis Position
+    | Shadow Identifier Identifier
+    | TypeError TypeError
+derive Show AnalyzeError
+derive Eq AnalyzeError
+
+showAnalyzeError :: String -> AnalyzeError -> String
+showAnalyzeError input (NoSuchClass c p)
+    = showErrorAt (lines input) ("No such class: " ++ c) p
+showAnalyzeError input (NoSuchMethod c m p)
+    = showErrorAt (lines input) ("No such method: " ++ m ++ " in class "++ c) p
+showAnalyzeError input (CyclicDependencies c p)
+    = showErrorAt (lines input) ("The class " ++ c ++ " has cyclic dependencies") p
+showAnalyzeError input (OverloadedField c v p)
+    = showErrorAt (lines input) ("Illegal overload of member " ++ v ++ " in class " ++ c) p
+showAnalyzeError input (Override c v p)
+    = showErrorAt (lines input) ("Override of method "++ v ++ " missing in super classes for class " ++ c) p
+showAnalyzeError input (DuplicateDeclaration ids)
+    = unlines $ "Error: Duplicate declarations" : concatMap (\i -> ("At " ++ scalashow (position i)) : showCursorAt (lines input) (position i)) ids
+showAnalyzeError input (NotDeclared var pos)
+    = showErrorAt (lines input) ("Not declared: " ++ var) pos
+showAnalyzeError input (TypeError (UnificationError t1 t2 pos))
+    = showErrorAt (lines input) ("Cannot unify type " ++ show t1 ++ " with type " ++ show t2) pos
+showAnalyzeError input (Shadow before new)
+    = unlines $ ["Error: Shadow of previously declared variable"
+      , "the variable: " ++ (scalashow $ position new)
+      ]
+      ++ showCursorAt (lines input) (position new)
+      ++ ["was previously defined here: " ++ (scalashow $ position before)]
+      ++ showCursorAt (lines input) (position before)
+
+showAnalyzeError input (TypeError err)
+    = show err
+
+type Analyze a = Accumulate [AnalyzeError] a
+

@@ -11,7 +11,7 @@ import Data.Traversable(traverse)
 import punkt0.parser.Pretty (prettyPrint)
 import punkt0.Positioned
 import punkt0.ScalaShow
-import punkt0.Analyzer
+import punkt0.analyzer.Analyzer
 import punkt0.Errors
 
 tokens :: String -> [Lexeme Token]
