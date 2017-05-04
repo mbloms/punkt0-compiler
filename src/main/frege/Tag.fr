@@ -1,0 +1,82 @@
+module punkt0.Tag where
+import punkt0.parser.Grammar
+import punkt0.Analyzer
+
+symbolizeProgram :: Program -> Program
+symbolizeProgram = 
+
+class Tagged n where
+	tag :: Int -> n -> (Int,n)
+
+instance Tagged Identifier where
+	tag i identifier = (i+1,Symbol i undefined identifier)
+
+instance Tagged VarDeclaration where
+	tag i vd = (i+1,vd.{name <- (snd . tag i)})
+
+instance Tagged (Identifier,Type) where
+	tag i (identifier,t) = (i+1,(((snd . tag i) identifier),t))
+
+instance Tagged MethodDeclaration where
+	tag i md = (i'',md.{name <- (snd . tag i),args=args',vars=vars'})
+		where
+			(i',args') = tag (i+1) md.args
+			(i'', vars') = tag i' md.vars
+
+instance Tagged a => Tagged [a] where
+	tag i xs = foldr symOne (i,[]) xs
+		where
+			symOne x (i', lst) = let
+				(i'', x') = tag i' x
+				in (i'', x' : lst)
+
+instance Tagged a => Tagged (Maybe a) where
+	tag i Nothing = (i,Nothing)
+	tag i x = (i+1,fmap (snd . tag i) x)
+
+instance Tagged ClassDeclaration where
+	tag i cd = (i''',cd.{name=name',extends = extends' , vars=vars',methods=methods'})
+		where
+			(_,name') = tag i cd.name
+			(i',extends') = tag (i+1) cd.extends
+			(i'',vars') = tag i' cd.vars
+			(i''', methods') = tag i'' cd.methods
+
+instance Tagged MainDeclaration where
+	tag i md = (i,md.{name <- (snd . tag i), extends <- (snd . tag i),vars=vars'})
+		where
+			(i',vars') = tag (i+2) md.vars
+
+tagged :: Program -> Program
+tagged (Program cds md pos) = Program cds' md' pos
+	where
+		(i, cds') = tag 0 cds
+		(_,md') = tag i md
+
+class Labeled l where
+	labeled :: SymbolType -> l -> l
+
+instance Labeled Identifier where
+	labeled st (Symbol i _ identifier) = Symbol i st identifier
+	labeled _ _ = error "'labeled' must be run after 'tagged'."
+instance Labeled (Identifier,Type) where
+	labeled st (a,b) = (labeled st a, b)
+
+instance Labeled l => Labeled [l] where
+	labeled (LocalSymbol i) xs = zipWith (\x i' -> labeled (LocalSymbol i') x) xs [i..]
+	labeled st lst = map (labeled st) lst
+
+instance Labeled VarDeclaration where
+	labeled st vd = vd.{name <- labeled st}
+
+labelProgram :: Program -> Program
+labelProgram (Program cds md pos) = Program (map labelClass cds) (labelMain md) pos
+
+labelClass :: ClassDeclaration -> ClassDeclaration
+labelClass cd = cd.{name <- labeled ClassSymbol, extends <- fmap (labeled ClassSymbol), vars <- labeled FieldSymbol, methods <- (map labelMethod)}
+
+labelMethod :: MethodDeclaration -> MethodDeclaration
+labelMethod md = md.{name <- labeled MethodSymbol, args <- labeled (LocalSymbol 1), vars <- labeled (LocalSymbol (length md.args))}
+
+labelMain :: MainDeclaration -> MainDeclaration
+labelMain m = m.{name <- labeled ClassSymbol, extends <- labeled ClassSymbol, vars <- labeled (LocalSymbol 1)}
