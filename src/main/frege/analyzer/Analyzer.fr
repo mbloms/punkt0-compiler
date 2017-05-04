@@ -1,29 +1,19 @@
 module punkt0.analyzer.Analyzer where
-import Data.HashMap
 import punkt0.Reporter
-import Data.Traversable(traverse, sequenceA)
-import Data.List(sort, partition, group, find)
-import punkt0.Positioned
 import punkt0.parser.Grammar
 import punkt0.Phase
-import punkt0.Errors
 import punkt0.ScalaShow
-import punkt0.Named
 import punkt0.Typed
 import punkt0.analyzer.Inheritance
 import punkt0.analyzer.Symbols
 import punkt0.analyzer.Names
 import punkt0.analyzer.Types
-
-debug :: String -> α -> α
-debug msg f = if trace msg then f else f
-
-getClasses (Program classes _ _) = classes
+import punkt0.analyzer.TypeCheck
 
 analyzer program
     = toEither (checkDependencies program)
     >>= \inheritance -> toEither (analyzeNames (createSymbols program))
-    >>= \(interfaces, program') -> pure program'
+    >>= \(interfaces, program') -> toEither (typecheck (inheritance, interfaces, empty, Nothing) program')
     -- >>= \env -> toEither ())
     -- >>= \interfaces -> toEither (typecheck (env.{interfaces=interfaces}) program')
 

@@ -262,6 +262,7 @@ instance Typed (Identifier, Type) where
     typeOf (_, t) = ttype t
 
 instance Positioned Expression where
+    position (Typed _ e) = position e
     position (BinOp _ _ _ pos) = pos
     position (MethodCall _ _ _ pos) = pos
     position (LitInt _ pos) = pos

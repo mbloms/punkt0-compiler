@@ -21,15 +21,16 @@ type ClassName = String
 type VarName = String
 type MethodName = String
 type Interface = (HashMap VarName VarDeclaration, HashMap MethodName MethodDeclaration, HashMap String Identifier)
+type Interfaces = HashMap ClassName Interface
 
 data TypeError
     = UnificationError TType TType Position
-    | InvalidAddOperands TType TType Position
-    | InvalidEq Position
-    | InvalidNumOperands TType TType Position
-    | NotAnObject TType Position
+    | InvalidOperands BinOp TType TType Position
+    | NotAnObject Position
     | CallOnNonMethod TType Position
     | CannotDeduceType Expression
+    | CannotConstruct TType Position
+    | MustExtendApp Position
 derive Show TypeError
 derive Eq TypeError
 
@@ -64,6 +65,18 @@ showAnalyzeError input (NotDeclared var pos)
     = showErrorAt (lines input) ("Not declared: " ++ var) pos
 showAnalyzeError input (TypeError (UnificationError t1 t2 pos))
     = showErrorAt (lines input) ("Cannot unify type " ++ show t1 ++ " with type " ++ show t2) pos
+showAnalyzeError input (TypeError (NotAnObject pos))
+    = showErrorAt (lines input) ("Cannot call method without object") pos
+showAnalyzeError input (TypeError (InvalidOperands op t1 t2 pos))
+    = showErrorAt (lines input) ("Cannot perform operation " ++ show (op, t1, t2)) pos
+showAnalyzeError input (TypeError (MustExtendApp pos))
+    = showErrorAt (lines input) ("The object must extend App") pos
+showAnalyzeError input (TypeError (CallOnNonMethod t pos))
+    = showErrorAt (lines input) ("The type " ++ show t ++ " is not callable") pos
+showAnalyzeError input (TypeError (CannotDeduceType e))
+    = showErrorAt (lines input) ("Cannot deduce type ") (position e)
+showAnalyzeError input (TypeError (CannotConstruct t pos))
+    = showErrorAt (lines input) ("Cannot construct objects with type " ++ show t) pos
 showAnalyzeError input (Shadow before new)
     = unlines $ ["Error: Shadow of previously declared variable"
       , "the variable: " ++ (scalashow $ position new)
@@ -71,7 +84,6 @@ showAnalyzeError input (Shadow before new)
       ++ showCursorAt (lines input) (position new)
       ++ ["was previously defined here: " ++ (scalashow $ position before)]
       ++ showCursorAt (lines input) (position before)
-
 showAnalyzeError input (TypeError err)
     = show err
 

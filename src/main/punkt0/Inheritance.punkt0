@@ -2,7 +2,8 @@
 class A extends C {
     var y : Int = 3;
     def foo() : Int = {
-        5
+        this.foo();
+        y
     }
 }
 
@@ -11,8 +12,10 @@ class B extends A {
     // should only have 4 names anyway
     override def foo() : Int = {
         var x : Int = 3;
-        z + y + x
+        z + y + x + true;
+        z + y
     }
+    //override def foo( invalid : Int) : Int = {4}
     def bar(x : Int) : Int = {
         this.foo();
         new x().foo();
@@ -21,7 +24,7 @@ class B extends A {
 }
 
 class C {
-    var x : Boolean = false;
+    var x : Boolean = 3;
 }
 
 object Main extends App {
