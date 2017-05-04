@@ -6,8 +6,9 @@ import punkt0.Typed
 import punkt0.parser.Grammar
 import punkt0.Reporter
 import punkt0.analyzer.Types
+import Data.List(find)
 
-type Supers = HashMap String (HashSet String)
+type Supers = HashMap String [String]
 type Environment = (Supers, Interfaces, HashMap String Identifier, Maybe ClassName)
 
 equalType :: (Typed a, Positioned a) => a -> a -> Analyze ()
@@ -27,11 +28,17 @@ unify _ pos TBool TBool = pure TBool
 unify _ pos TString TString = pure TString
 unify (supers, interfaces, env, className) pos (TClass c) (TClass d)
     | c == d = pure (TClass c)
-    | otherwise = if d `member` unJust (lookup c supers)
+    | otherwise = if d `elem` unJust (lookup c supers)
         then pure (TClass c)
         else report1 (TypeError $ UnificationError (TClass c) (TClass d) pos)
 unify _ pos (TClass c) TAnyRef = pure (TClass c)
 unify _ pos t1 t2 = report1 (TypeError $ UnificationError t1 t2 pos)
+
+leastCommonClass xs ys
+    = maybe (pure TAnyRef) (\(c,d) -> pure $ TClass c) common
+    where
+        zs = reverse (zip (reverse xs) (reverse ys))
+        common = find (\(c,d) -> c == d) zs
 
 -- Get the type that is the most specific
 -- common type between the two types
@@ -39,10 +46,7 @@ unify _ pos t1 t2 = report1 (TypeError $ UnificationError t1 t2 pos)
 -- subtyping relation <:
 leastCommonType (supers, interfaces, env, className) pos (TClass c) (TClass d)
     | c == d = pure (TClass c)
-    | otherwise = case (d `member` unJust (lookup c supers), c `member` unJust (lookup d supers)) of
-        (True, _) -> pure (TClass c)
-        (_, True) -> pure (TClass d)
-        (_, _) -> pure TAnyRef
+    | otherwise = leastCommonClass (c : (unJust $ lookup c supers)) (d : (unJust $ lookup d supers))
 leastCommonType env pos (TClass c) TAnyRef = pure (TClass c)
 leastCommonType env pos TAnyRef (TClass c) = pure (TClass c)
 -- Unless the types are classes this is the same as normal unification
