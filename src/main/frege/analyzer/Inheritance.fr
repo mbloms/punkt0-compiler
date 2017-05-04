@@ -12,12 +12,11 @@ import punkt0.Reporter
 import punkt0.analyzer.Types
 
 -- | Find missing classes
-missing :: (Named a, Eq a, Positioned a) => a -> HashSet a -> Extends a -> Analyze ()
-missing baseClass declared extends = traverse checkExists extends *> ok
+missing :: (Named a, Eq a, Positioned a) => HashSet a -> Extends a -> Analyze ()
+missing declared extends = traverse checkExists extends *> ok
     where
         ok = pure ()
         checkExists super
-            | super == baseClass = ok
             | otherwise
                 = maybe
                     (if super `member` declared
@@ -27,8 +26,8 @@ missing baseClass declared extends = traverse checkExists extends *> ok
                     (lookup super extends)
 
 -- | Expand inheritance chain
-inheritance :: Eq a => a -> Extends a -> Inheritance a
-inheritance baseClass extends = result
+inheritance :: Eq a => Extends a -> Inheritance a
+inheritance extends = result
     where
         result = mapValues supers extends
         supers super = maybe [super] (super :) (lookup super result)
@@ -59,21 +58,18 @@ namePos decl = (nameOf decl, position decl)
 toSet :: Eq a => [a] -> HashSet a
 toSet xs = fromList $ fmap (\x -> (x, ())) xs
 
-toSupers :: Named a => Inheritance a -> HashMap String (HashSet String)
-toSupers inh = fromList . fmap convertOne $ each inh
-    where
-        convertOne (base, supers) = (nameOf base, toSet . fmap nameOf $ supers)
+toSupers inheritance = fromList $ fmap (\(key, supers) -> (fst key, fmap fst supers)) (each inheritance)
 
-checkDependencies :: Program -> Analyze (HashMap String (HashSet String))
+checkDependencies :: Program -> Analyze (HashMap String [String])
 checkDependencies (Program classes _ _)
-    = missing baseClass declared extends
-    *> fmap setSupers (cycleChecks (inheritance baseClass extends))
+    = missing declared extends
+    *> fmap setSupers (cycleChecks (inheritance extends))
         where
             (withExtend, declaredClasses) = partition (\c -> isJust $ c.extends) classes
             declared = toSet $ fmap namePos declaredClasses
             noExtends = fmap (const []) declared
-            baseClass = ("Any", initialPosition)
             pair c = (namePos c, parent c)
             parent c = namePos . unJust $ c.extends
             extends = (fromList . fmap pair $ withExtend)
-            setSupers inh = toSupers (inh `union` noExtends)
+            setSupers inh = toSupers $ inh `union` noExtends
+
