@@ -9,16 +9,13 @@ import punkt0.analyzer.Types
 import Data.List(find)
 
 type Supers = HashMap String [String]
-type Environment = (Supers, Interfaces, HashMap String Identifier, Maybe ClassName)
+type Environment = (Supers, Interfaces, Maybe ClassName)
 
-equalType :: (Typed a, Positioned a) => a -> a -> Analyze ()
-equalType a1 a2
+equalType :: Position -> TType -> TType -> Analyze ()
+equalType pos t1 t2
     = if t1 /= t2
-        then report1 $ TypeError $ UnificationError t1 t2 (position a1)
+        then report1 $ TypeError $ UnificationError t1 t2 pos
         else pure ()
-    where
-        t1 = typeOf a1
-        t2 = typeOf a2
 
 -- t1 <: t2
 -- t1 is a subtype of t2
@@ -27,7 +24,7 @@ unify _ pos TUnit TUnit = pure TUnit
 unify _ pos TInt TInt = pure TInt
 unify _ pos TBool TBool = pure TBool
 unify _ pos TString TString = pure TString
-unify (supers, interfaces, env, className) pos (TClass c) (TClass d)
+unify (supers, interfaces, className) pos (TClass c) (TClass d)
     | c == d = pure (TClass c)
     | otherwise = if d `elem` unJust (lookup c supers)
         then pure (TClass c)
@@ -46,7 +43,7 @@ leastCommonClass xs ys
 -- common type between the two types
 -- This is the same as a least upper bound on the
 -- subtyping relation <:
-leastCommonType (supers, interfaces, env, className) pos (TClass c) (TClass d)
+leastCommonType (supers, interfaces, className) pos (TClass c) (TClass d)
     | c == d = pure (TClass c)
     | otherwise = leastCommonClass (c : (unJust $ lookup c supers)) (d : (unJust $ lookup d supers))
 leastCommonType env pos (TClass c) TAnyRef = pure (TClass c)
@@ -78,7 +75,7 @@ exprType env (New identifier pos) = pure $ lookupType env identifier
 exprType env expr = report1 $ TypeError $ CannotDeduceType expr
 
 methodType :: Environment -> MethodName -> Expression -> Analyze TType
-methodType (supers, interfaces, env, className) methodName (Typed (TClass c) expr)
+methodType (supers, interfaces, className) methodName (Typed (TClass c) expr)
     = maybe (report1 $ NoSuchMethod c methodName (position expr)) pure methodType
     where
         iface = lookup c interfaces
@@ -105,6 +102,10 @@ binOpType _ And TBool TBool = pure TBool
 binOpType _ Or TBool TBool = pure TBool
 binOpType pos op t1 t2 = report1 $ TypeError $ InvalidOperands op t1 t2 pos
 
+getType :: Expression -> TType
+getType (Typed t _) = t
+getType _ = error "Internal error: all expressions should have type when calling getType"
+
 typecheckExpression :: Environment -> Expression -> Analyze Expression
 typecheckExpression env (e@Typed _ _) = pure e
 typecheckExpression env (e@LitInt _ _) = fmap Typed (exprType env e) <*> pure e
@@ -116,17 +117,17 @@ typecheckExpression env (e@Not expr pos)
     = toAccumulate check
     where
         check = toEither (typecheckExpression env expr)
-            >>= \(expr'@Typed t _) -> toEither (unify env pos t TBool)
+            >>= \expr' -> toEither (unify env pos (getType expr') TBool)
             >>= \_ -> pure $ Typed TBool (Not expr' pos)
 typecheckExpression env (identifier@Identifier id pos) = pure $ Typed (lookupType env id) identifier
-typecheckExpression (_, interfaces, _, _) (new@New obj pos)
+typecheckExpression (_, interfaces, _) (new@New obj pos)
     = maybe
         (report1 $ TypeError $ NotAnObject pos)
         (const . pure $ Typed (TClass className) new)
         (lookup className interfaces)
     where
         className = nameOf obj
-typecheckExpression (_,_,_,className) (e@LitThis pos)
+typecheckExpression (_,_,className) (e@LitThis pos)
     = maybe
         (report1 $ InvalidThis pos)
         (\n -> pure $ Typed (TClass n) e)
@@ -145,6 +146,7 @@ typecheckExpression env (MethodCall expr name args pos)
             >>= \(t, ts) -> toEither (applyUnify env pos t ts)
             >>= \_ -> pure (Typed (returnType t) $ MethodCall expr' name args' pos)
         returnType (TMethod (_, ret)) = ret
+        returnType _ = error "Internal error: type should be method type"
 -- Empty blocks have type TUnit
 typecheckExpression env (Block [] pos)
     = pure $ Typed TUnit (Block [] pos)
@@ -157,20 +159,20 @@ typecheckExpression env (If predicate body Nothing pos)
     = toAccumulate check
     where
         check = toEither (typecheckExpression env predicate)
-            >>= \(predicate'@Typed t _) -> toEither (unify env pos t TBool)
+            >>= \predicate' -> toEither (unify env pos (getType predicate') TBool)
             >>= \_ -> toEither (typecheckExpression env body)
-            >>= \(body'@Typed t1 _) -> pure $ Typed t1 (If predicate' body' Nothing pos)
+            >>= \body' -> pure $ Typed (getType body') (If predicate' body' Nothing pos)
 typecheckExpression env (If predicate body (Just elseBody) pos)
     = toAccumulate check
     where check = toEither (typecheckExpression env predicate)
-            >>= \(predicate'@Typed t _) -> toEither (unify env pos t TBool)
+            >>= \predicate' -> toEither (unify env pos (getType predicate') TBool)
             >>= \_ -> toEither (fmap (,) (typecheckExpression env body) <*> (typecheckExpression env elseBody))
-            >>= \(body'@Typed t1 _, elseBody'@Typed t2 _) -> toEither (leastCommonType env pos t1 t2)
+            >>= \(body',elseBody') -> toEither (leastCommonType env pos (getType body') (getType elseBody'))
             >>= \t3 -> pure $ Typed t3 (If predicate' body' (Just elseBody') pos)
 typecheckExpression env (While predicate body pos)
     = toAccumulate check
     where check = toEither (typecheckExpression env predicate)
-            >>= \(predicate'@Typed t _) -> toEither (unify env pos t TBool)
+            >>= \predicate' -> toEither (unify env pos (getType predicate') TBool)
             >>= \_ -> toEither (typecheckExpression env body)
             >>= \body' -> pure (Typed TUnit (While predicate' body' pos))
 typecheckExpression env (assign@Assign{expr})
@@ -180,7 +182,9 @@ typecheckExpression env (assign@Assign{expr})
 typecheckExpression env (println@Println{expr,pos})
     = toAccumulate check
     where check = toEither (typecheckExpression env expr)
-            >>= \(expr'@Typed t _) -> toEither ((unify env pos t TInt) <|> (unify env pos t TBool) <|> (unify env pos t TString))
+            >>= \expr' -> toEither (unify env pos (getType expr') TInt
+                                <|> unify env pos (getType expr') TBool
+                                <|> unify env pos (getType expr') TString)
             >>= \_ -> pure (Typed TUnit (println.{expr=expr'}))
 
 typecheckMethod :: Environment -> MethodDeclaration -> Analyze MethodDeclaration
@@ -188,7 +192,7 @@ typecheckMethod env (MethodDeclaration override name args returnType vars exprs 
     = toAccumulate check
     where
         check = toEither (typecheckExpression env (Block exprs pos))
-            >>= \(Typed t (Block exprs' _)) -> toEither (unify env pos t (ttype returnType))
+            >>= \(Typed t (Block exprs' _)) -> toEither (equalType pos t (ttype returnType))
             >>= \_ -> toEither (traverse (typecheckVar env) vars)
             >>= \vars' -> pure (MethodDeclaration override name args returnType vars' exprs' pos)
 
@@ -202,13 +206,13 @@ typecheckVar env (Var name varType expr pos)
             >>= \_ -> pure (Var name varType expr' pos)
 
 typecheckClass :: Environment -> ClassDeclaration -> Analyze ClassDeclaration
-typecheckClass (supers, interfaces, env, className) (Class name extends vars methods pos)
+typecheckClass (supers, interfaces, className) (Class name extends vars methods pos)
     = fmap (Class name extends)
         (traverse (typecheckVar env') vars)
         <*> (traverse (typecheckMethod env') methods)
         <*> pure pos
     where
-        env' = (supers, interfaces, env, Just (nameOf name))
+        env' = (supers, interfaces, Just (nameOf name))
 
 typecheckMain :: Environment -> MainDeclaration -> Analyze MainDeclaration
 typecheckMain env (Main name extends vars body pos)
