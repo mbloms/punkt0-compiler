@@ -13,7 +13,7 @@ import punkt0.analyzer.TypeCheck
 analyzer program
     = toEither (checkDependencies program)
     >>= \inheritance -> toEither (analyzeNames (createSymbols program))
-    >>= \(interfaces, program') -> toEither (typecheck (inheritance, interfaces, empty, Nothing) program')
+    >>= \(interfaces, program') -> toEither (typecheck (inheritance, interfaces, Nothing) program')
     -- >>= \(interfaces, program') -> pure program'
     -- >>= \env -> toEither ())
     -- >>= \interfaces -> toEither (typecheck (env.{interfaces=interfaces}) program')
