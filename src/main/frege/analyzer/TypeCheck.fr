@@ -8,14 +8,24 @@ import punkt0.Reporter
 import punkt0.analyzer.Types
 
 type Supers = HashMap String (HashSet String)
-type Environment = (Supers, HashMap String Identifier)
+type Environment = (Supers, Interfaces, HashMap String Identifier, Maybe ClassName)
+
+equalType :: (Typed a, Positioned a) => a -> a -> Analyze ()
+equalType a1 a2
+    = if t1 /= t2
+        then report1 $ TypeError $ UnificationError t1 t2 (position a1)
+        else pure ()
+    where
+        t1 = typeOf a1
+        t2 = typeOf a2
+
 -- t1 <: t2
 -- t1 is a subtype of t2
 unify :: Environment -> Position -> TType -> TType -> Analyze TType
 unify _ pos TInt TInt = pure TInt
 unify _ pos TBool TBool = pure TBool
 unify _ pos TString TString = pure TString
-unify (supers, env) pos (TClass c) (TClass d)
+unify (supers, interfaces, env, className) pos (TClass c) (TClass d)
     | c == d = pure (TClass c)
     | otherwise = if d `member` unJust (lookup c supers)
         then pure (TClass c)
@@ -27,12 +37,12 @@ unify _ pos t1 t2 = report1 (TypeError $ UnificationError t1 t2 pos)
 -- common type between the two types
 -- This is the same as a least upper bound on the
 -- subtyping relation <:
-leastCommonType (supers, env) pos (TClass c) (TClass d)
+leastCommonType (supers, interfaces, env, className) pos (TClass c) (TClass d)
     | c == d = pure (TClass c)
     | otherwise = case (d `member` unJust (lookup c supers), c `member` unJust (lookup d supers)) of
         (True, _) -> pure (TClass c)
         (_, True) -> pure (TClass d)
-        (_, _) -> report1 $ TypeError $ UnificationError (TClass c) (TClass d) pos
+        (_, _) -> pure TAnyRef
 leastCommonType env pos (TClass c) TAnyRef = pure (TClass c)
 leastCommonType env pos TAnyRef (TClass c) = pure (TClass c)
 -- Unless the types are classes this is the same as normal unification
@@ -46,21 +56,95 @@ applyUnify env pos (TMethod (tparams, treturn)) targs
     *> pure treturn
 applyUnify env pos t _ = report1 $ TypeError $ CallOnNonMethod t pos
 
-{-
+lookupType :: Environment -> Identifier -> TType
+lookupType env (Symbol _ _ t _) = t
+lookupType env (i@ID _ _) = error $ "Internal error: All identifier must be symbols in typechecker" ++ show i
 
+exprType :: Environment -> Expression -> Analyze TType
+exprType env (Typed t _) = pure t
+exprType env (LitInt _ _) = pure TInt
+exprType env (LitString _ _) = pure TString
+exprType env (LitTrue _) = pure TBool
+exprType env (LitFalse _) = pure TBool
+exprType env (LitNull _) = pure TAnyRef
+exprType env (Identifier identifier pos) = pure $ lookupType env identifier
+exprType env (New identifier pos) = pure $ lookupType env identifier
+exprType env expr = report1 $ TypeError $ CannotDeduceType expr
 
-idType :: (WithId a, Typed a) => a -> (Identifier, TType)
-idType x = (idOf x, typeOf x)
+methodType :: Environment -> MethodName -> Expression -> Analyze TType
+methodType (supers, interfaces, env, className) methodName (Typed (TClass c) expr)
+    = maybe (report1 $ NoSuchMethod c methodName (position expr)) pure methodType
+    where
+        iface = lookup c interfaces
+        method = iface >>= \(_, methods, _) -> lookup methodName methods
+        methodType = fmap typeOf method
+methodType env name expr = report1 $ TypeError $ NotAnObject (position expr)
+
+binOpType :: Position -> BinOp -> TType -> TType -> Analyze TType
+binOpType _ Plus TInt TInt = pure TInt
+binOpType _ Plus TString TInt = pure TString
+binOpType _ Plus TInt TString = pure TString
+binOpType _ Plus TString TString = pure TString
+binOpType _ Minus TInt TInt = pure TInt
+binOpType _ Times TInt TInt = pure TInt
+binOpType _ Div TInt TInt = pure TInt
+binOpType _ Equals TInt TInt = pure TBool
+binOpType _ Equals TBool TBool = pure TBool
+binOpType _ Equals TString TString = pure TBool
+binOpType _ Equals (TClass c) (TClass d) = pure TBool
+binOpType _ Equals (TClass c) TAnyRef = pure TBool
+binOpType _ Equals TAnyRef (TClass c) = pure TBool
+binOpType _ LessThan TInt TInt = pure TBool
+binOpType _ And TBool TBool = pure TBool
+binOpType _ Or TBool TBool = pure TBool
+binOpType pos op t1 t2 = report1 $ TypeError $ InvalidOperands op t1 t2 pos
+
+typecheckExpression :: Environment -> Expression -> Analyze Expression
+typecheckExpression env (e@LitInt _ _) = fmap Typed (exprType env e) <*> pure e
+typecheckExpression env (e@LitString _ _) = fmap Typed (exprType env e) <*> pure e
+typecheckExpression env (e@LitTrue _) = fmap Typed (exprType env e) <*> pure e
+typecheckExpression env (e@LitFalse _) = fmap Typed (exprType env e) <*> pure e
+typecheckExpression env (e@LitNull _) = fmap Typed (exprType env e) <*> pure e
+typecheckExpression env (identifier@Identifier id pos) = pure $ Typed (lookupType env id) identifier
+typecheckExpression (_, interfaces, _, _) (new@New obj pos)
+    = maybe
+        (report1 $ TypeError $ NotAnObject pos)
+        (const . pure $ Typed (TClass className) new)
+        (lookup className interfaces)
+    where
+        className = nameOf obj
+typecheckExpression (_,_,_,className) (e@LitThis pos)
+    = maybe
+        (report1 $ InvalidThis pos)
+        (\n -> pure $ Typed (TClass n) e)
+        className
+typecheckExpression env (BinOp lhs op rhs pos)
+    = toAccumulate check
+    where
+        check = toEither (fmap (,) (typecheckExpression env lhs) <*> (typecheckExpression env rhs))
+            >>= \(lhs', rhs') -> toEither (fmap (,) (exprType env lhs') <*> (exprType env rhs'))
+            >>= \(t1, t2) -> toEither (fmap Typed (binOpType pos op t1 t2) <*> pure (BinOp lhs' op rhs' pos))
+typecheckExpression env (MethodCall expr name args pos)
+    = toAccumulate check
+    where
+        check = toEither (fmap (,) (typecheckExpression env expr) <*> (traverse (typecheckExpression env) args))
+            >>= \(expr', args') -> toEither (fmap (,) (methodType env (nameOf name) expr') <*> (traverse (exprType env) args'))
+            >>= \(t, ts) -> toEither (applyUnify env pos t ts)
+            >>= \_ -> pure (Typed t $ MethodCall expr' name args' pos)
+typecheckExpression env (Block exprs pos)
+    = toAccumulate check
+    where
+        check = toEither (traverse (typecheckExpression env) exprs)
+                >>= \es -> toEither $ fmap Typed (exprType env $ last es) <*> pure (Block es pos)
+typecheckExpression env expr = pure expr
 
 typecheckMethod :: Environment -> MethodDeclaration -> Analyze MethodDeclaration
 typecheckMethod env (MethodDeclaration override name args returnType vars exprs pos)
     = toAccumulate check
     where
-        params = fromList (fmap (\(id, t) -> (nameOf id, (id, t))) args)
-        env' = env.{locals=namedMap vars, parameters=params}
-        check = toEither (typecheckExpression env' (Block exprs pos))
+        check = toEither (typecheckExpression env (Block exprs pos))
             >>= \(Typed t (Block exprs' _)) ->
-                toEither (unify env pos t (ttype returnType) *> traverse (typecheckVar env') vars)
+                toEither (unify env pos t (ttype returnType) *> traverse (typecheckVar env) vars)
             >>= \vars' -> pure (MethodDeclaration override name args returnType vars' exprs' pos)
 
 typecheckVar :: Environment -> VarDeclaration -> Analyze VarDeclaration
@@ -72,100 +156,32 @@ typecheckVar env (Var name varType expr pos)
             >>= \t -> toEither (unify env pos (ttype varType) t)
             >>= \_ -> pure (Var name varType expr' pos)
 
-equalType :: Position -> MethodDeclaration -> MethodDeclaration -> Analyze ()
-equalType pos a1 a2
-    = if t1 /= t2
-        then report1 $ TypeError $ UnificationError t1 t2 (position a1)
-        else pure ()
-    where
-        t1 = typeOf a1
-        t2 = typeOf a2
-
 typecheckClass :: Environment -> ClassDeclaration -> Analyze ClassDeclaration
-typecheckClass env (Class name extends vars methods pos)
-    = sequenceA (intersectionWith (equalType pos) overrides supermethods)
-    *> fmap (Class name extends)
+typecheckClass (supers, interfaces, env, className) (Class name extends vars methods pos)
+    = fmap (Class name extends)
         (traverse (typecheckVar env') vars)
         <*> (traverse (typecheckMethod env') methods)
         <*> pure pos
     where
-        overrides = namedMap (filter isOverride methods)
-        parentinterface = extends >>= \parent -> lookup (nameOf parent) env.interfaces
-        (supervars, supermethods, names) = maybe (empty, empty, empty) id parentinterface
-        (vars', methods', _) = unJust $ lookup (nameOf name) env.interfaces
-        env' = env.{fields=vars', methods=methods'}
+        env' = (supers, interfaces, env, Just (nameOf name))
 
 typecheckMain :: Environment -> MainDeclaration -> Analyze MainDeclaration
-typecheckMain _ = pure
-
-typecheck :: Environment -> Program -> Analyze Program
-typecheck env _ | traceLn (showInterfaces env.interfaces) = undefined
-typecheck env (Program classes main pos)
-    = fmap Program
-        (traverse (typecheckClass env') classes)
-        <*> typecheckMain env main
+typecheckMain env (Main name extends vars body pos)
+    = checkExtends
+    *> fmap (Main name extends)
+        (traverse (typecheckVar env) vars)
+        <*> (traverse (typecheckExpression env) body)
         <*> pure pos
     where
-        env' = env.{classes=namedMap classes}
+        checkExtends = if nameOf extends != "App"
+            then report1 (TypeError (MustExtendApp pos))
+            else pure ()
 
-exprType :: Environment -> Expression -> Analyze TType
-exprType env (Typed t _) = pure t
-exprType env (LitInt _ _) = pure TInt
-exprType env (LitString _ _) = pure TString
-exprType env (LitTrue _) = pure TBool
-exprType env (LitFalse _) = pure TBool
-exprType env (LitNull _) = pure TAnyRef
-exprType env (Identifier identifier pos) = lookupType env identifier
-exprType env (New identifier pos) = lookupType env identifier
-exprType env expr = report1 (TypeError $ CannotDeduceType expr)
+typecheck :: Environment -> Program -> Analyze Program
+typecheck env (Program classes main pos)
+    = fmap Program
+        (traverse (typecheckClass env) classes)
+        <*> typecheckMain env main
+        <*> pure pos
 
-methodType :: Environment -> MethodName -> Expression -> Analyze TType
-methodType env methodName (Typed (TClass c) expr)
-    = maybe (report1 $ NoSuchMethod c methodName (position expr)) pure methodType
-    where
-        iface = lookup c env.interfaces
-        method = iface >>= \(_, methods, _) -> lookup methodName methods
-        methodType = fmap typeOf method
-methodType env name expr = report1 $ TypeError $ NotAnObject (typ expr) (position expr)
-
-typecheckExpression :: Environment -> Expression -> Analyze Expression
-typecheckExpression env (identifier@(Identifier id pos))
-    = fmap Typed (lookupType env id) <*> pure identifier
-typecheckExpression env (new@(New obj pos))
-    = fmap Typed (lookupType env obj) <*> pure new
-typecheckExpression env (MethodCall expr name args pos)
-    = toAccumulate check
-    where
-        check = toEither (typecheckExpression env expr)
-            >>= \expr' -> toEither (methodType env (nameOf name) expr')
-            >>= \t -> toEither (traverse (typecheckExpression env) args)
-            >>= \args' -> toEither (traverse (exprType env) args')
-            >>= \ts -> toEither (applyUnify env pos t ts)
-            >>= \_ -> pure (MethodCall expr' name args' pos)
-typecheckExpression env (Block exprs pos)
-    = toAccumulate check
-    where
-        check =
-            toEither (typecheckExpression env (last exprs))
-            >>= \e -> toEither (exprType env e)
-            >>= \t -> pure (Typed t (Block exprs pos))
-typecheckExpression env expr
-    | traceLn (showEnv env) = undefined
-    | traceLn "missing cases for typecheck expr" = undefined
-    | otherwise = toAccumulate check
-        where
-            check = toEither (exprType env expr)
-                >>= \t -> pure (Typed t expr)
-
-lookupType :: Environment -> Identifier -> Analyze TType
-lookupType env id = let
-    var = nameOf id
-    t = (fmap typeOf (lookup var env.locals))
-        <|> (fmap typeOf (lookup var env.parameters))
-        <|> (fmap typeOf (lookup var env.fields))
-        <|> (fmap typeOf (lookup var env.methods))
-        <|> (fmap typeOf (lookup var env.classes))
-    in maybe (report1 $ NotDeclared var (position id)) pure t
-
--}
 

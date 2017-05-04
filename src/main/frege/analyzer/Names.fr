@@ -4,6 +4,7 @@ import Data.List(sort, partition, group)
 import Data.Traversable(traverse, sequenceA)
 import punkt0.Errors
 import punkt0.Named
+import punkt0.Typed
 import punkt0.Positioned
 import punkt0.Reporter
 import punkt0.analyzer.Types
@@ -49,10 +50,17 @@ inSuperMethods :: ClassName -> HashMap MethodName MethodDeclaration -> MethodDec
 inSuperMethods className supermethods method
     | otherwise = maybe
         (report1 $ Override className (nameOf method) (position method))
-        (const (pure ()))
+        assertSameType
         (lookup (nameOf method) supermethods)
+        where
+            assertSameType sm =
+                if t1 == t2
+                    then pure ()
+                    else report1 $ TypeError $ UnificationError t1 t2 (position method)
+                where
+                    t1 = typeOf sm
+                    t2 = typeOf method
 
-type Interfaces = HashMap ClassName Interface
 interfaces :: [ClassDeclaration] -> HashMap ClassName (Analyze Interface)
 interfaces classes = result
     where
@@ -118,7 +126,8 @@ analyzeMethod :: Environment -> MethodDeclaration -> Analyze MethodDeclaration
 analyzeMethod env (m@MethodDeclaration{vars,args,exprs})
     = noDups declared
     *> verifyShadowing env (namedMap declared)
-    *> fmap (m.{exprs=}) (traverse (analyzeExpr env') exprs)
+    *> fmap (\exprs vars -> m.{exprs=exprs, vars=vars})
+        (traverse (analyzeExpr env') exprs) <*> (traverse (analyzeVar env') vars)
     where
         -- has to be a list to find duplicates
         declared = (fmap idOf vars ++ fmap idOf args)
@@ -139,7 +148,9 @@ analyzeMain :: Environment -> MainDeclaration -> Analyze MainDeclaration
 analyzeMain env (m@Main{vars, body})
     = noDups declared
     *> verifyShadowing env (namedMap declared)
-    *> fmap (m.{body=}) (traverse (analyzeExpr env') body)
+    *> fmap (\body vars -> m.{body=body,vars=vars})
+        (traverse (analyzeExpr env') body)
+        <*> (traverse (analyzeVar env') vars)
     where
         declared = fmap idOf vars
         env' = extendEnv env (namedMap declared)
