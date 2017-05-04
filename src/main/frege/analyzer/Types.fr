@@ -45,7 +45,7 @@ data AnalyzeError
     | InvalidThis Position
     | Shadow Identifier Identifier
     | NonConstantDeclaration Position
-    | ParamAssign Position
+    | ParamAssign String Position
     | TypeError TypeError
 derive Show AnalyzeError
 derive Eq AnalyzeError
@@ -88,6 +88,11 @@ showAnalyzeError input (Shadow before new)
       ++ showCursorAt (lines input) (position before)
 showAnalyzeError input (TypeError err)
     = show err
+showAnalyzeError input (NonConstantDeclaration p)
+    = showErrorAt (lines input) ("Expression in variable declaration must be constant.") p
+showAnalyzeError input (ParamAssign v p)
+    = showErrorAt (lines input) ("'" ++ v ++ "' is a method parameter and cannot be reassigned.") p
+
 
 type Analyze a = Accumulate [AnalyzeError] a
 

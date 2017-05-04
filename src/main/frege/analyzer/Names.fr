@@ -110,21 +110,16 @@ analyzeExpr env (Block exprs pos)
 analyzeExpr env (Println expr pos)
     = fmap Println (analyzeExpr env expr) <*> pure pos
 analyzeExpr env (Assign var expr pos)
-    =  *> fmap (Assign var) (analyzeExpr env expr) <*> pure pos
+    =  analyzeAssign var *> fmap (Assign var) (analyzeExpr env expr) <*> pure pos
 analyzeExpr env expr
     = pure expr
 
 analyzeAssign :: Identifier -> Analyze ()
-analyzeAssign (Symbol _ (LocalSymbol Param _) _ i) = report1 (ParamAssign (position i))
+analyzeAssign (Symbol _ (LocalSymbol Param _) _ i) = report1 (ParamAssign (nameOf i) (position i))
 analyzeAssign _ = pure ()
 
 analyzeVar :: Environment -> VarDeclaration -> Analyze VarDeclaration
-analyzeVar env (Var name varType expr pos)
-    = fmap (Var name varType)
-        (analyzeExpr env expr)
-        <*> pure pos
-
-analyzeVar env var@Var{expr} = case expr of
+analyzeVar env (var@Var{expr}) = case expr of
     LitInt{} -> pure var
     LitString{} -> pure var
     LitTrue{} -> pure var
@@ -132,11 +127,6 @@ analyzeVar env var@Var{expr} = case expr of
     LitNull{} -> pure var
     New{} -> fmap (var.{expr=}) (analyzeExpr env expr)
     _ -> report1 (NonConstantDeclaration (position expr))
-
-analyzeVar env (var@Var name _ (LitTrue{}) pos) = pure pos
-analyzeVar env (var@Var name _ (LitTrue{}) pos) = pure pos
-analyzeVar env (var@Var name _ (LitTrue{}) pos) = pure pos
-analyzeVar env _ = 
 
 analyzeMethod :: Environment -> MethodDeclaration -> Analyze MethodDeclaration
 analyzeMethod env (m@MethodDeclaration{vars,args,exprs})
