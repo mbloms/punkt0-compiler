@@ -9,8 +9,8 @@ class Drawable {
 	// render the drawing by getting its pixel value one by one
 	def render(): String = {
 		var depth: Int = 0;
-		var screen: String = null;
-		var symb: String = null;
+		var screen: String = "";
+		var symb: String = "";
 		var x: Int = 0;
 		var y: Int = 0;
 		
@@ -65,7 +65,8 @@ class Drawable {
 // Concentric circles, giving a representation of successive integer overflows.
 class ConcentricCircles extends Drawable {
 	override def computePixel(xIn:Int, yIn:Int): Int = {
-		var x: Int = xIn; var y: Int = yIn;
+		var x: Int = 0; 
+		var y: Int = 0;
 		var x0: Int = 0;
 		var y0: Int = 0;
 		var iter: Int = 0;
@@ -76,10 +77,9 @@ class ConcentricCircles extends Drawable {
 		resY = 30;
 		
 		// image scaling & centering
-		x0 = x*2500 - 15000;
-		y0 = y*4500 - 15000;
+		x0 = xIn*2500 - 15000;
+		y0 = yIn*4500 - 15000;
 		
-		x=0; y=0;
 		iter = 0-1; 
 		maxIter = 100;
 		
@@ -101,7 +101,8 @@ class ConcentricCircles extends Drawable {
 // Representation of a Mandelbrot set (not so pretty due to rounding).
 class Mandelbrot extends Drawable {
 	override def computePixel(xIn:Int, yIn:Int): Int = {
-		var x: Int = xIn; var y: Int = yIn;
+		var x: Int = 0; 
+		var y: Int = 0;
 		// using pseudocode from Wikipedia Mandelbrot page
 		// http://en.wikipedia.org/wiki/Mandelbrot_set
 		
@@ -115,10 +116,9 @@ class Mandelbrot extends Drawable {
 		resY = 40;
 		
 		// scaling and centering
-		x0 = (x-25)/5 - 1;
-		y0 = (y-15)/3;
+		x0 = (xIn-25)/5 - 1;
+		y0 = (yIn-15)/3;
 		
-		x=0; y=0;
 		iter = 0-2; maxIter = 1000;
 		
 		while( (x*x + y*y < 50) && iter<maxIter) {
@@ -140,7 +140,8 @@ class Mandelbrot extends Drawable {
 // Another cool pattern.
 class Cross extends Drawable {
 	override def computePixel(xIn:Int, yIn:Int): Int = {
-		var x: Int = xIn; var y: Int = yIn;
+		var x: Int = 0; 
+		var y: Int = 0;
 		var x0: Int = 0;
 		var y0: Int = 0;
 		var iter: Int = 0;
@@ -153,10 +154,9 @@ class Cross extends Drawable {
 		resY = 30;
 		
 		// scaling and centering
-		 x0 = ((x*80*s / resX) - 40*s);
-		 y0 = ((y*400*s / resY) - 200*s);
+		 x0 = ((xIn*80*s / resX) - 40*s);
+		 y0 = ((yIn*400*s / resY) - 200*s);
 
-		 x=0; y=0;
 		 iter = 0-2; maxIter = 10000;
 		 
 		 while( (y*y - x*x < 10000) && iter<maxIter) {
