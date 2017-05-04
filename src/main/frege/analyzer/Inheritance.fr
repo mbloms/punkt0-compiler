@@ -1,6 +1,5 @@
 module punkt0.analyzer.Inheritance where
 import punkt0.parser.Grammar
-import punkt0.Named
 import punkt0.Typed
 import punkt0.Errors
 import Data.HashMap

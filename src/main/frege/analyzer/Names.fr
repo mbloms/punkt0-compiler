@@ -3,7 +3,6 @@ import Data.HashMap
 import Data.List(sort, partition, group)
 import Data.Traversable(traverse, sequenceA)
 import punkt0.Errors
-import punkt0.Named
 import punkt0.Typed
 import punkt0.Positioned
 import punkt0.Reporter
