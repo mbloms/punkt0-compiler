@@ -4,7 +4,6 @@ class A {
     var y : Int = 4;
 
     def foo(z : Int) : Int = {
-        x = true;
         new A()
     }
 }

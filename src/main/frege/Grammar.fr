@@ -184,28 +184,34 @@ typeParser =
     <|> (tokenType Tokens.UnitType *> pure Unit)
     <|> (fmap User identifier)
 
+data LocalType
+    = Param
+    | LocalVar
+derive Show LocalType
+derive Eq LocalType
+
 data SymbolType
     = ClassSymbol
     | FieldSymbol
     | MethodSymbol
-    | LocalSymbol Int
+    | LocalSymbol LocalType Int
 derive Show SymbolType
 derive Eq SymbolType
 
 data Identifier
     = ID {str :: String, pos :: Position}
-    | Symbol Int SymbolType Identifier
+    | Symbol Int SymbolType TType Identifier
 derive Eq Identifier
 derive Show Identifier
 instance Ord Identifier where
     (ID a _) <=> (ID b _) = a <=> b
-    (Symbol _ _ a) <=> (Symbol _ _ b) = a <=> b
-    (Symbol _ _ a) <=> (b@(ID _ _)) = a <=> b
-    (a@(ID _ _)) <=> (Symbol _ _ b) = a <=> b
+    (Symbol _ _ _ a) <=> (Symbol _ _ _ b) = a <=> b
+    (Symbol _ _ _ a) <=> (b@(ID _ _)) = a <=> b
+    (a@(ID _ _)) <=> (Symbol _ _ _ b) = a <=> b
 
 instance Positioned Identifier where
     position (ID _ pos) = pos
-    position (Symbol _ _ id) = position id
+    position (Symbol _ _ _ id) = position id
 
 identifier :: Parser Lex Identifier
 identifier =
@@ -415,7 +421,7 @@ instance ScalaShow a => ScalaShow (Maybe a) where
 
 instance ScalaShow Identifier where
     scalashow (ID str _) = wrap "Identifier" id str
-    scalashow (Symbol _ _ i) = wrap "Identifier" id (scalashow i)
+    scalashow (Symbol _ _ _ i) = wrap "Identifier" id (scalashow i)
 
 instance ScalaShow Expression where
     scalashow (BinOp e op e' _) = wrap (scalashow op) id $ joinPair e e'
@@ -502,7 +508,7 @@ instance Named String where
 
 instance Named Identifier where
     nameOf (ID n _) = n
-    nameOf (Symbol _ _ id) = nameOf id
+    nameOf (Symbol _ _ _ id) = nameOf id
 
 instance Named ClassDeclaration where
     nameOf (Class{name=id}) = nameOf id

@@ -1,0 +1,164 @@
+module punkt0.analyzer.Names where
+import Data.HashMap
+import Data.List(sort, partition, group)
+import Data.Traversable(traverse, sequenceA)
+import punkt0.Errors
+import punkt0.Named
+import punkt0.Positioned
+import punkt0.Reporter
+import punkt0.analyzer.Types
+import punkt0.parser.Grammar
+
+type Environment = HashMap String Identifier
+
+verifyShadowing :: Environment -> Environment -> Analyze ()
+verifyShadowing before created
+    = sequenceA (intersectionWith verify before created) *> ok
+    where
+        ok = pure ()
+        verify (a@(Symbol _ FieldSymbol _ _)) (b@(Symbol _ (LocalSymbol LocalVar _) _ _)) = ok
+        verify (a@(Symbol _ FieldSymbol _ _)) (b@(Symbol _ (LocalSymbol Param _) _ _)) = ok
+        verify a b = report1 (Shadow a b)
+
+extendEnv :: Environment -> Environment -> Environment
+extendEnv old new = new `union` old
+
+namedMap :: (Named a) => [a] -> HashMap String a
+namedMap xs = fromList $ fmap (\x -> (nameOf x, x)) xs
+
+noDups :: (WithId a) => [a] -> Analyze ()
+noDups xs = errors *> ok
+    where
+        ok = pure ()
+        errors = traverse (\dup -> report1 (DuplicateDeclaration dup)) dups
+        hasDups [] = False
+        hasDups [x] = False
+        hasDups (x:y:_) = True
+        dups = filter hasDups grouped
+        grouped = group (sort $ fmap idOf xs)
+
+isOverride (MethodDeclaration{override}) = override
+
+noOverloads err supervars vars
+    = traverse (\field -> report1 $ err (nameOf field) (position field)) overloads
+    *> pure ()
+    where
+        overloads = vars `intersection` supervars
+
+inSuperMethods :: ClassName -> HashMap MethodName MethodDeclaration -> MethodDeclaration -> Analyze ()
+inSuperMethods className supermethods method
+    | otherwise = maybe
+        (report1 $ Override className (nameOf method) (position method))
+        (const (pure ()))
+        (lookup (nameOf method) supermethods)
+
+type Interfaces = HashMap ClassName Interface
+interfaces :: [ClassDeclaration] -> HashMap ClassName (Analyze Interface)
+interfaces classes = result
+    where
+        result = fromList $ fmap (\c -> (nameOf c, iface c)) classes
+        ifaceWhere :: Interface -> ClassDeclaration -> Analyze Interface
+        ifaceWhere (supervars, supermethods, names) (Class name _ vars methods pos)
+            = let
+                className = nameOf name
+                (overridesList, newmethodsList) = partition isOverride methods
+                overrides = namedMap overridesList
+                newmethods = namedMap newmethodsList
+                vars' = namedMap vars
+                methods' = overrides `union` supermethods
+                declaredIds = fmap idOf vars ++ fmap idOf methods
+                declared = fmap idOf vars' `union` fmap idOf newmethods
+            in noDups declaredIds
+            *> traverse (inSuperMethods className supermethods) overrides
+            *> noOverloads (OverloadedField className) names declared
+            *> noOverloads (OverloadedField className) methods' declared
+            *> pure (supervars `union` vars', methods' `union` newmethods, names `union` declared)
+        iface :: ClassDeclaration -> Analyze Interface
+        iface (cls@(Class _ (Just parent) _ _ _))
+            = let
+                parentface = unJust $ lookup (nameOf parent) result
+            in case unJust $ lookup (nameOf parent) result of
+                ALeft errors -> ALeft errors *> ifaceWhere (empty, empty, empty) cls
+                ARight parentsigs -> ifaceWhere parentsigs cls
+        iface (cls@(Class _ Nothing _ _ _))
+            = ifaceWhere (empty, empty, empty) cls
+
+lookupSymbol :: Environment -> Identifier -> Analyze Identifier
+lookupSymbol env (sym@(Symbol{})) = pure sym -- already a symbol, do not update
+lookupSymbol env (ID var pos)
+    = maybe (report1 $ NotDeclared var pos) pure (lookup var env)
+
+analyzeExpr :: Environment -> Expression -> Analyze Expression
+analyzeExpr env (Identifier i pos)
+    = fmap Identifier (lookupSymbol env i) <*> pure pos
+analyzeExpr env (New i pos)
+    = fmap New (lookupSymbol env i) <*> pure pos
+analyzeExpr env (BinOp lhs op rhs pos)
+    = fmap BinOp (analyzeExpr env lhs) <*> pure op <*> (analyzeExpr env rhs) <*> pure pos
+analyzeExpr env (MethodCall expr name args pos)
+    = fmap MethodCall (analyzeExpr env expr) <*> pure name <*> (traverse (analyzeExpr env) args) <*> pure pos
+analyzeExpr env (Not expr pos)
+    = fmap Not (analyzeExpr env expr) <*> pure pos
+analyzeExpr env (Block exprs pos)
+    = fmap Block (traverse (analyzeExpr env) exprs) <*> pure pos
+analyzeExpr env (Println expr pos)
+    = fmap Println (analyzeExpr env expr) <*> pure pos
+analyzeExpr env (Assign var expr pos)
+    = fmap (Assign var) (analyzeExpr env expr) <*> pure pos
+analyzeExpr env expr
+    = pure expr
+
+analyzeVar :: Environment -> VarDeclaration -> Analyze VarDeclaration
+analyzeVar env (Var name varType expr pos)
+    = fmap (Var name varType)
+        (analyzeExpr env expr)
+        <*> pure pos
+
+analyzeMethod :: Environment -> MethodDeclaration -> Analyze MethodDeclaration
+analyzeMethod env (m@MethodDeclaration{vars,args,exprs})
+    = noDups declared
+    *> verifyShadowing env (namedMap declared)
+    *> fmap (m.{exprs=}) (traverse (analyzeExpr env') exprs)
+    where
+        -- has to be a list to find duplicates
+        declared = (fmap idOf vars ++ fmap idOf args)
+        env' = extendEnv env (namedMap declared)
+
+analyzeClass :: Interfaces -> Environment -> ClassDeclaration -> Analyze ClassDeclaration
+analyzeClass interfaces env (Class name extends vars methods pos)
+    = verifyShadowing env names
+    *> fmap (Class name extends)
+        (traverse (analyzeVar env') vars)
+        <*> (traverse (analyzeMethod env') methods)
+        <*> pure pos
+    where
+        (vars', methods', names) = unJust (lookup (nameOf name) interfaces)
+        env' = extendEnv env names
+
+analyzeMain :: Environment -> MainDeclaration -> Analyze MainDeclaration
+analyzeMain env (m@Main{vars, body})
+    = noDups declared
+    *> verifyShadowing env (namedMap declared)
+    *> fmap (m.{body=}) (traverse (analyzeExpr env') body)
+    where
+        declared = fmap idOf vars
+        env' = extendEnv env (namedMap declared)
+
+analyzeNames' :: Interfaces -> Program -> Analyze Program
+analyzeNames' interfaces (Program classes main pos)
+    = fmap Program
+        (traverse (analyzeClass interfaces env) classes)
+        <*> (analyzeMain env main)
+        <*> pure pos
+    where
+        classNames = namedMap (fmap idOf classes)
+        env = classNames
+
+--- | Analyze names and replace identifiers
+--- | with their bound symbols.
+analyzeNames :: Program -> Analyze (Interfaces, Program)
+analyzeNames (Program classes main pos)
+    = case sequenceA (interfaces classes) of
+        ALeft errors -> ALeft errors
+        ARight result -> fmap (\p -> (result, p)) $ analyzeNames' result (Program classes main pos)
+

@@ -1,0 +1,56 @@
+module punkt0.analyzer.Symbols where
+import punkt0.parser.Grammar
+import punkt0.Named
+import punkt0.Typed
+
+tagIds :: (WithId a, Typed a) => (Int -> SymbolType) -> Int -> [a] -> (Int, [a])
+tagIds symbolType symbol xs = (i' + symbol, xs')
+    where
+        (i', xs') = foldr (\c (i,cs) -> (i+1, tagId (l-i-1) c : cs)) (0, []) xs
+        l = length xs
+        tagId i c = setId (Symbol (symbol+i) (symbolType i) (typeOf c) (idOf c)) c
+
+createSymbolsMethod :: Int -> MethodDeclaration -> (Int, MethodDeclaration)
+createSymbolsMethod symbol (m@MethodDeclaration{args,vars,exprs})
+    = (j, m.{args=args',vars=vars'})
+    where
+        (i, args') = tagIds (\l -> LocalSymbol Param (l+1)) symbol args
+        a = length args
+        (j, vars') = tagIds (\l -> LocalSymbol LocalVar (a+l+1)) i vars
+
+createSymbolsClass :: Int -> ClassDeclaration -> (Int, ClassDeclaration)
+createSymbolsClass symbol (Class name extends vars methods pos)
+    = (k, Class name extends vars' methods'' pos)
+    where
+        className = nameOf name
+        (i, vars') = tagIds (const FieldSymbol) symbol vars
+        (j, methods') = tagIds (const MethodSymbol) i methods
+        (k, methods'') = createSymbolsNested createSymbolsMethod j methods'
+        createClass vs (k,ms) = (k, Class name extends vs ms pos)
+
+createSymbolsNested :: (Int -> a -> (Int, a)) -> Int -> [a] -> (Int, [a])
+createSymbolsNested nested symbol xs = createSymbolsNested' symbol xs []
+    where
+        createSymbolsNested' i [] acc = (i, reverse acc)
+        createSymbolsNested' i (c:cs) acc
+            = let (i', c') = nested i c
+            in createSymbolsNested' i' cs (c':acc)
+
+createSymbolsMain :: Int -> MainDeclaration -> (Int, MainDeclaration)
+createSymbolsMain symbol (main@Main{vars}) =
+    (j, main.{vars=vars'})
+    where
+        (j, vars') = tagIds (\i -> LocalSymbol LocalVar i) symbol vars
+
+tagMain i (main@Main{name})
+    = main.{name=Symbol i ClassSymbol (TClass $ nameOf name) name}
+
+--- | Replace declarations of identifiers with symbols (starting from 0)
+createSymbols :: Program -> Program
+createSymbols (Program classes main pos)
+    = Program classes'' main' pos
+    where
+        (i, classes') = tagIds (const ClassSymbol) 0 classes
+        (j, main') = createSymbolsMain (i+1) (tagMain i main)
+        (k, classes'') = createSymbolsNested createSymbolsClass j classes'
+
