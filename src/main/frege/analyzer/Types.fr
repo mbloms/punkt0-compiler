@@ -44,6 +44,8 @@ data AnalyzeError
     | DuplicateDeclaration [Identifier]
     | InvalidThis Position
     | Shadow Identifier Identifier
+    | NonConstantDeclaration Position
+    | ParamAssign Position
     | TypeError TypeError
 derive Show AnalyzeError
 derive Eq AnalyzeError
