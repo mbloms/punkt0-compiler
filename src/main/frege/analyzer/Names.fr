@@ -84,7 +84,7 @@ interfaces classes = result
         iface :: ClassDeclaration -> Analyze Interface
         iface (cls@(Class _ (Just parent) _ _ _))
             = case unJust $ lookup (nameOf parent) result of
-                ALeft errors -> ALeft errors *> ifaceWhere (empty, empty, empty) cls
+                ALeft errors -> ALeft errors
                 ARight parentsigs -> ifaceWhere parentsigs cls
         iface (cls@(Class _ Nothing _ _ _))
             = ifaceWhere (empty, empty, empty) cls
@@ -119,6 +119,20 @@ analyzeVar env (Var name varType expr pos)
     = fmap (Var name varType)
         (analyzeExpr env expr)
         <*> pure pos
+
+analyzeVar env var@Var{expr} = case expr of
+    LitInt{} -> pure var
+    LitString{} -> pure var
+    LitTrue{} -> pure var
+    LitFalse{} -> pure var
+    LitNull{} -> pure var
+    New{} -> fmap (var.{expr=}) (analyzeExpr env expr)
+    _ -> report1 (NonConstantDeclaration (position expr))
+
+analyzeVar env (var@Var name _ (LitTrue{}) pos) = pure pos
+analyzeVar env (var@Var name _ (LitTrue{}) pos) = pure pos
+analyzeVar env (var@Var name _ (LitTrue{}) pos) = pure pos
+analyzeVar env _ = 
 
 analyzeMethod :: Environment -> MethodDeclaration -> Analyze MethodDeclaration
 analyzeMethod env (m@MethodDeclaration{vars,args,exprs})
