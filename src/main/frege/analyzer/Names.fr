@@ -110,9 +110,13 @@ analyzeExpr env (Block exprs pos)
 analyzeExpr env (Println expr pos)
     = fmap Println (analyzeExpr env expr) <*> pure pos
 analyzeExpr env (Assign var expr pos)
-    = fmap (Assign var) (analyzeExpr env expr) <*> pure pos
+    =  *> fmap (Assign var) (analyzeExpr env expr) <*> pure pos
 analyzeExpr env expr
     = pure expr
+
+analyzeAssign :: Identifier -> Analyze ()
+analyzeAssign (Symbol _ (LocalSymbol Param _) _ i) = report1 (ParamAssign (position i))
+analyzeAssign _ = pure ()
 
 analyzeVar :: Environment -> VarDeclaration -> Analyze VarDeclaration
 analyzeVar env (Var name varType expr pos)
