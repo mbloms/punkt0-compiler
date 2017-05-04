@@ -83,9 +83,7 @@ interfaces classes = result
             *> pure (supervars `union` vars', methods' `union` newmethods, names `union` declared)
         iface :: ClassDeclaration -> Analyze Interface
         iface (cls@(Class _ (Just parent) _ _ _))
-            = let
-                parentface = unJust $ lookup (nameOf parent) result
-            in case unJust $ lookup (nameOf parent) result of
+            = case unJust $ lookup (nameOf parent) result of
                 ALeft errors -> ALeft errors *> ifaceWhere (empty, empty, empty) cls
                 ARight parentsigs -> ifaceWhere parentsigs cls
         iface (cls@(Class _ Nothing _ _ _))
