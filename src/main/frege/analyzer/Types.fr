@@ -1,6 +1,5 @@
 module punkt0.analyzer.Types where
 import punkt0.parser.Grammar
-import punkt0.Named
 import punkt0.Typed
 import punkt0.Positioned
 import punkt0.ScalaShow

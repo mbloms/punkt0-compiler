@@ -1,4 +1,4 @@
-module punkt0.CodeGen where
+module punkt0.codegen.CodeGen where
 a = a
 {-
 import punkt0.parser.Grammar

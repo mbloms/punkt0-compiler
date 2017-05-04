@@ -1,6 +1,5 @@
 module punkt0.analyzer.Symbols where
 import punkt0.parser.Grammar
-import punkt0.Named
 import punkt0.Typed
 
 tagIds :: (WithId a, Typed a) => (Int -> SymbolType) -> Int -> [a] -> (Int, [a])
