@@ -23,6 +23,7 @@ equalType a1 a2
 -- t1 <: t2
 -- t1 is a subtype of t2
 unify :: Environment -> Position -> TType -> TType -> Analyze TType
+unify _ pos TUnit TUnit = pure TUnit
 unify _ pos TInt TInt = pure TInt
 unify _ pos TBool TBool = pure TBool
 unify _ pos TString TString = pure TString
@@ -32,6 +33,7 @@ unify (supers, interfaces, env, className) pos (TClass c) (TClass d)
         then pure (TClass c)
         else report1 (TypeError $ UnificationError (TClass c) (TClass d) pos)
 unify _ pos (TClass c) TAnyRef = pure (TClass c)
+unify _ pos TBottomRef (TClass c) = pure (TClass c)
 unify _ pos t1 t2 = report1 (TypeError $ UnificationError t1 t2 pos)
 
 leastCommonClass xs ys
@@ -70,7 +72,7 @@ exprType env (LitInt _ _) = pure TInt
 exprType env (LitString _ _) = pure TString
 exprType env (LitTrue _) = pure TBool
 exprType env (LitFalse _) = pure TBool
-exprType env (LitNull _) = pure TAnyRef
+exprType env (LitNull _) = pure TBottomRef
 exprType env (Identifier identifier pos) = pure $ lookupType env identifier
 exprType env (New identifier pos) = pure $ lookupType env identifier
 exprType env expr = report1 $ TypeError $ CannotDeduceType expr
@@ -104,11 +106,18 @@ binOpType _ Or TBool TBool = pure TBool
 binOpType pos op t1 t2 = report1 $ TypeError $ InvalidOperands op t1 t2 pos
 
 typecheckExpression :: Environment -> Expression -> Analyze Expression
+typecheckExpression env (e@Typed _ _) = pure e
 typecheckExpression env (e@LitInt _ _) = fmap Typed (exprType env e) <*> pure e
 typecheckExpression env (e@LitString _ _) = fmap Typed (exprType env e) <*> pure e
 typecheckExpression env (e@LitTrue _) = fmap Typed (exprType env e) <*> pure e
 typecheckExpression env (e@LitFalse _) = fmap Typed (exprType env e) <*> pure e
 typecheckExpression env (e@LitNull _) = fmap Typed (exprType env e) <*> pure e
+typecheckExpression env (e@Not expr pos)
+    = toAccumulate check
+    where
+        check = toEither (typecheckExpression env expr)
+            >>= \(expr'@Typed t _) -> toEither (unify env pos t TBool)
+            >>= \_ -> pure $ Typed TBool (Not expr' pos)
 typecheckExpression env (identifier@Identifier id pos) = pure $ Typed (lookupType env id) identifier
 typecheckExpression (_, interfaces, _, _) (new@New obj pos)
     = maybe
@@ -134,21 +143,53 @@ typecheckExpression env (MethodCall expr name args pos)
         check = toEither (fmap (,) (typecheckExpression env expr) <*> (traverse (typecheckExpression env) args))
             >>= \(expr', args') -> toEither (fmap (,) (methodType env (nameOf name) expr') <*> (traverse (exprType env) args'))
             >>= \(t, ts) -> toEither (applyUnify env pos t ts)
-            >>= \_ -> pure (Typed t $ MethodCall expr' name args' pos)
+            >>= \_ -> pure (Typed (returnType t) $ MethodCall expr' name args' pos)
+        returnType (TMethod (_, ret)) = ret
+-- Empty blocks have type TUnit
+typecheckExpression env (Block [] pos)
+    = pure $ Typed TUnit (Block [] pos)
 typecheckExpression env (Block exprs pos)
     = toAccumulate check
     where
         check = toEither (traverse (typecheckExpression env) exprs)
-                >>= \es -> toEither $ fmap Typed (exprType env $ last es) <*> pure (Block es pos)
-typecheckExpression env expr = pure expr
+            >>= \es -> toEither $ fmap Typed (exprType env $ last es) <*> pure (Block es pos)
+typecheckExpression env (If predicate body Nothing pos)
+    = toAccumulate check
+    where
+        check = toEither (typecheckExpression env predicate)
+            >>= \(predicate'@Typed t _) -> toEither (unify env pos t TBool)
+            >>= \_ -> toEither (typecheckExpression env body)
+            >>= \(body'@Typed t1 _) -> pure $ Typed t1 (If predicate' body' Nothing pos)
+typecheckExpression env (If predicate body (Just elseBody) pos)
+    = toAccumulate check
+    where check = toEither (typecheckExpression env predicate)
+            >>= \(predicate'@Typed t _) -> toEither (unify env pos t TBool)
+            >>= \_ -> toEither (fmap (,) (typecheckExpression env body) <*> (typecheckExpression env elseBody))
+            >>= \(body'@Typed t1 _, elseBody'@Typed t2 _) -> toEither (leastCommonType env pos t1 t2)
+            >>= \t3 -> pure $ Typed t3 (If predicate' body' (Just elseBody') pos)
+typecheckExpression env (While predicate body pos)
+    = toAccumulate check
+    where check = toEither (typecheckExpression env predicate)
+            >>= \(predicate'@Typed t _) -> toEither (unify env pos t TBool)
+            >>= \_ -> toEither (typecheckExpression env body)
+            >>= \body' -> pure (Typed TUnit (While predicate' body' pos))
+typecheckExpression env (assign@Assign{expr})
+    = toAccumulate check
+    where check = toEither (typecheckExpression env expr)
+            >>= \expr' -> pure (Typed TUnit (assign.{expr=expr'}))
+typecheckExpression env (println@Println{expr,pos})
+    = toAccumulate check
+    where check = toEither (typecheckExpression env expr)
+            >>= \(expr'@Typed t _) -> toEither ((unify env pos t TInt) <|> (unify env pos t TBool) <|> (unify env pos t TString))
+            >>= \_ -> pure (Typed TUnit (println.{expr=expr'}))
 
 typecheckMethod :: Environment -> MethodDeclaration -> Analyze MethodDeclaration
 typecheckMethod env (MethodDeclaration override name args returnType vars exprs pos)
     = toAccumulate check
     where
         check = toEither (typecheckExpression env (Block exprs pos))
-            >>= \(Typed t (Block exprs' _)) ->
-                toEither (unify env pos t (ttype returnType) *> traverse (typecheckVar env) vars)
+            >>= \(Typed t (Block exprs' _)) -> toEither (unify env pos t (ttype returnType))
+            >>= \_ -> toEither (traverse (typecheckVar env) vars)
             >>= \vars' -> pure (MethodDeclaration override name args returnType vars' exprs' pos)
 
 typecheckVar :: Environment -> VarDeclaration -> Analyze VarDeclaration
@@ -157,7 +198,7 @@ typecheckVar env (Var name varType expr pos)
     where
         check = toEither (typecheckExpression env expr)
             >>= \expr' -> toEither (exprType env expr')
-            >>= \t -> toEither (unify env pos (ttype varType) t)
+            >>= \t -> toEither (unify env pos t (ttype varType))
             >>= \_ -> pure (Var name varType expr' pos)
 
 typecheckClass :: Environment -> ClassDeclaration -> Analyze ClassDeclaration

@@ -31,6 +31,11 @@ instance Semigroup e => Applicative (Accumulate e) where
     ALeft e <*> _ = ALeft e
     _ <*> ALeft e = ALeft e
 
+instance Semigroup e => Alt (Accumulate e) where
+    (a@ARight _) <|> _ = a
+    _ <|> (a@ARight _) = a
+    (ALeft e1) <|> (ALeft e2) = ALeft (e1 <> e2)
+
 data ReporterT e m a = ReporterT {!run :: m (Accumulate e a)}
 
 instance Functor f => Functor (ReporterT e f) where
