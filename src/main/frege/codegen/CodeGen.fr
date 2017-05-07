@@ -20,6 +20,9 @@ data ClassFile = mutable native cafebabe.ClassFile where
     native setSourceFile :: ClassFile -> String -> IO ()
     native writeToFile :: ClassFile -> String -> IO ()
     native addMainMethod :: ClassFile -> IO MethodHandler
+    native addDefaultConstructor :: ClassFile -> IO ()
+
+-- data Codes = native p0scala.codegen.Codes
 
 -- public class cafebabe.MethodHandler {
 --   public cafebabe.CodeHandler codeHandler();
@@ -50,35 +53,79 @@ data MethodHandler = mutable native cafebabe.MethodHandler where
 --   public cafebabe.CodeHandler(cafebabe.CodeAttributeInfo, cafebabe.ConstantPool, java.lang.String, boolean);
 -- }
 
-data CodeHandler = mutable native cafebabe.CodeHandler where
-    native append "$less$less" :: CodeHandler -> Function1 CodeHandler CodeHandler -> IO CodeHandler
-data AbstractByteCode = mutable native "cafebabe.AbstractByteCodes$AbstractByteCode"
+
+data ByteCode = pure native "cafebabe.AbstractByteCodes.AbstractByteCode"
 
 data Function1 t r = pure native scala.Function1 {t,r}
--- data CodeGenerator = mutable native "scala.Function1<cafebabe.CodeHandler, cafebabe.CodeHandler>"
+
+type CodeGenerator = Function1 CodeHandler CodeHandler
+
+data CodeHandler = mutable native cafebabe.CodeHandler where
+    native append "$less$less" :: CodeHandler -> CodeGenerator -> IO CodeHandler
+                                | CodeHandler -> ByteCode -> IO CodeHandler
+    native freeze :: CodeHandler -> IO ()
 
 -- https://github.com/psuter/cafebabe/blob/master/src/main/scala/cafebabe/AbstractByteCode.scala
 data ScalaALoad = native "cafebabe.AbstractByteCodes$ALoad$" where
-    pure native apply "cafebabe.AbstractByteCodes.ALoad$.MODULE$.apply" :: Int -> Function1 CodeHandler CodeHandler
+    pure native apply "cafebabe.AbstractByteCodes.ALoad$.MODULE$.apply" :: Int -> CodeGenerator
 
 data ScalaPush = native "cafebabe.AbstractByteCodes$Ldc$" where
-    pure native apply "cafebabe.AbstractByteCodes.Ldc$.MODULE$.apply" :: String -> Function1 CodeHandler CodeHandler
-                                                                        | Int -> Function1 CodeHandler CodeHandler
+    pure native apply "cafebabe.AbstractByteCodes.Ldc$.MODULE$.apply" :: String -> CodeGenerator
+                                                                      | Int -> CodeGenerator
 
-getScalaI :: Instruction -> Function1 CodeHandler CodeHandler
-getScalaI (Push i) = ScalaPush.apply i
-getScalaI (PushStr s) = ScalaPush.apply s
+data ScalaGetStatic = native "cafebabe.AbstractByteCodes$GetStatic$" where
+    pure native apply "cafebabe.AbstractByteCodes.GetStatic$.MODULE$.apply" :: String -> String -> String -> CodeGenerator
+
+data ScalaInvoke = native "cafebabe.AbstractByteCodes$InvokeVirtual$" where
+    pure native apply "cafebabe.AbstractByteCodes.InvokeVirtual$.MODULE$.apply" :: String -> String -> String -> CodeGenerator
+
+data ScalaReturn = native "cafebabe.ByteCodes.RETURN$" where
+    pure native o "cafebabe.ByteCodes.RETURN$.MODULE$" :: ByteCode
+
+javaType :: TType -> String
+javaType (TMethod (args, ret)) = "(" ++ concat (fmap  javaType args) ++ ")" ++ javaType ret
+javaType TString = "Ljava/lang/String;"
+javaType TInt = "I"
+javaType TBool = "Z"
+javaType (TClass c) = "L" ++ c ++ ";"
+javaType TUnit = "V"
+
+data Gen
+    = Gen CodeGenerator
+    | Code ByteCode
+getScalaI :: Instruction -> IO Gen
+getScalaI (Push i) = pure $ Gen $ ScalaPush.apply i
+getScalaI (PushStr s) = pure $ Gen $ ScalaPush.apply s
+getScalaI (GetStatic c m t) = pure $ Gen $ ScalaGetStatic.apply c m (javaType t)
+getScalaI (Invoke c m t) = pure $ Gen $ ScalaInvoke.apply c m (javaType t)
+getScalaI Return = pure $ Code $ ScalaReturn.o
 
 buildCode :: CodeHandler -> [Instruction] -> IO CodeHandler
-buildCode startHandler is = foldM (\handler i -> handler.append (getScalaI i)) startHandler is
+buildCode startHandler is = foldM f startHandler is
+    where
+        f handler i
+            = getScalaI i
+            >>= \res -> case res of
+                Gen g -> handler.append g
+                Code c -> handler.append c
+
+
+testProgram
+    = [ GetStatic "java/lang/System" "out" (TClass "java/io/PrintStream")
+    , PushStr "Hello world!"
+    , Invoke "java/io/PrintStream" "println" (TMethod ([TString], TUnit))
+    , Return
+    ]
 
 testCafe :: IO ()
-testCafe = ClassFile.new "Hello" (toOption Nothing)
-    >>= \cf -> cf.setSourceFile "Hello.p0"
+testCafe = ClassFile.new "HW" (toOption Nothing)
+    >>= \cf -> cf.setSourceFile "HW.java"
+    >>= \_ -> cf.addDefaultConstructor
     >>= \_ -> cf.addMainMethod
     >>= \mm -> mm.codeHandler
-    >>= \code -> buildCode code [Push 1, Push 1, Push 1, PushStr "Testing", Push 1762372]
-    >>= \_ -> cf.writeToFile "Hello.class"
+    >>= \code -> buildCode code testProgram
+    >>= \_ -> code.freeze
+    >>= \_ -> cf.writeToFile "HW.class"
 
 main = testCafe
 
@@ -90,6 +137,7 @@ type VarId = Int
 
 data Instruction
     = LineNum Int
+    | Return
     | Push Int
     | PushStr String
     | IConst Int
