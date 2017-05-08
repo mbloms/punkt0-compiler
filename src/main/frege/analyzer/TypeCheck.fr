@@ -144,7 +144,7 @@ typecheckExpression env (MethodCall expr name args pos)
         check = toEither (fmap (,) (typecheckExpression env expr) <*> (traverse (typecheckExpression env) args))
             >>= \(expr', args') -> toEither (fmap (,) (methodType env (nameOf name) expr') <*> (traverse (exprType env) args'))
             >>= \(t, ts) -> toEither (applyUnify env pos t ts)
-            >>= \_ -> pure (Typed (returnType t) $ MethodCall expr' name args' pos)
+            >>= \_ -> pure (Typed (returnType t) $ MethodCall expr' (Symbol (-1) MethodSymbol t name) args' pos)
         returnType (TMethod (_, ret)) = ret
         returnType _ = error "Internal error: type should be method type"
 -- Empty blocks have type TUnit

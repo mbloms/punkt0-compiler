@@ -3,6 +3,8 @@ import punkt0.analyzer.Analyzer
 import punkt0.parser.Grammar
 import punkt0.Typed
 import punkt0.Reporter
+import Java.Util(LinkedList, List)
+import Data.Traversable(traverse)
 
 data Option a = pure native scala.Option {a} where
     pure native empty scala.Option.empty :: () -> Option a
@@ -23,6 +25,11 @@ data ClassFile = mutable native cafebabe.ClassFile where
     native writeToFile :: ClassFile -> String -> IO ()
     native addMainMethod :: ClassFile -> IO MethodHandler
     native addDefaultConstructor :: ClassFile -> IO ()
+    native addField :: ClassFile -> String -> String -> IO FieldHandler
+    native addConstructor :: ClassFile -> ScalaList String -> IO MethodHandler
+    native addMethod :: ClassFile -> String -> String -> ScalaList String -> IO MethodHandler
+
+data FieldHandler = mutable native cafebabe.FieldHandler
 
 data MethodHandler = mutable native cafebabe.MethodHandler where
     native codeHandler :: MethodHandler -> IO CodeHandler
@@ -55,6 +62,12 @@ data ScalaGetStatic = native "cafebabe.AbstractByteCodes$GetStatic$" where
 data ScalaInvoke = native "cafebabe.AbstractByteCodes$InvokeVirtual$" where
     pure native apply "cafebabe.AbstractByteCodes.InvokeVirtual$.MODULE$.apply" :: String -> String -> String -> CodeGenerator
 
+data ScalaInvokeSpecial = native "cafebabe.AbstractByteCodes$InvokeSpecial$" where
+    pure native apply "cafebabe.AbstractByteCodes.InvokeSpecial$.MODULE$.apply" :: String -> String -> String -> CodeGenerator
+
+data ScalaNew = native "cafebabe.AbstractByteCodes$DefaultNew$" where
+    pure native apply "cafebabe.AbstractByteCodes.DefaultNew$.MODULE$.apply" :: String -> CodeGenerator
+
 data ScalaReturn = native "cafebabe.ByteCodes.RETURN$" where
     pure native o "cafebabe.ByteCodes.RETURN$.MODULE$" :: ByteCode
 
@@ -73,7 +86,21 @@ data ScalaIDIV = native "cafebabe.ByteCodes.IDIV$" where
 data ScalaIXOR = native "cafebabe.ByteCodes.IXOR$" where
     pure native o "cafebabe.ByteCodes.IXOR$.MODULE$" :: ByteCode
 
+data ScalaList t = pure native scala.collection.immutable.List {t} where
+    fromList xs = do
+        l <- LinkedList.new ()
+        l.addAllFromList xs
+        b <- JavaConversions.asScalaBuffer l
+        ScalaBuffer.toList b
 
+data ScalaNil t = pure native scala.collection.immutable.Nil {t} where
+    pure native nil "scala.collection.immutable.Nil$.MODULE$" :: ScalaList t
+
+data ScalaBuffer t = native scala.collection.mutable.Buffer {t} where
+    native toList :: Mutable s (ScalaBuffer t) -> ST s (ScalaList t)
+
+data JavaConversions t = native scala.collection.JavaConversions {t} where
+    native asScalaBuffer "scala.collection.JavaConversions.asScalaBuffer" :: Mutable s (List t) -> ST s (Mutable s (ScalaBuffer t))
 
 javaType :: TType -> String
 javaType (TMethod (args, ret)) = "(" ++ concat (fmap  javaType args) ++ ")" ++ javaType ret
@@ -88,10 +115,13 @@ data Gen
     | Code ByteCode
 getScalaI :: Instruction -> Gen
 getScalaI (LineNum i) = Code $ ScalaLineNumber.apply i
+getScalaI (ALoad i) = Gen $ ScalaALoad.apply i
 getScalaI (Push i) = Gen $ ScalaPush.apply i
 getScalaI (PushStr s) = Gen $ ScalaPush.apply s
 getScalaI (GetStatic c m t) = Gen $ ScalaGetStatic.apply c m (javaType t)
 getScalaI (Invoke c m t) = Gen $ ScalaInvoke.apply c m (javaType t)
+getScalaI (InvokeSpecial c m t) = Gen $ ScalaInvokeSpecial.apply c m (javaType t)
+getScalaI (DefaultNew c) = Gen $ ScalaNew.apply c
 getScalaI Return = Code $ ScalaReturn.o
 getScalaI IADD = Code $ ScalaIADD.o
 getScalaI ISUB = Code $ ScalaISUB.o
@@ -121,74 +151,93 @@ compileExpression (Typed TInt (BinOp (Typed TInt e1) op (Typed TInt e2) pos))
         Minus -> [LineNum pos.line, ISUB]
         Times -> [LineNum pos.line, IMUL]
         Div -> [LineNum pos.line, IDIV]
-compileExpression (Typed _ expr)
-    | traceLn (show expr) = undefined
-    | otherwise = compileExpression expr
---compileExpression (If pred body Nothing pos)
-
-{-
-compileExpression (Typed TBool (BinOp e1 op e2 pos)) = case (e1.t,e2.t) of
-    (TInt,TInt) -> compileExpression e2 ++ compileExpression e1 ++ case op of
-        Equals -> _
-        LessThan -> _
-    (TBool,TBool) -> compileExpression e2 ++ compileExpression e1 ++ case op of
-        Equals -> 
-
-    (TString,TString) -> undefined
-    _ -> compileExpression e2 ++ compileExpression e1
-
-
-
-
-    (TString,TInt) -> undefined
-    (TInt,TString) -> undefined
-    (TBool,TBool) -> compileExpression e2 ++ compileExpression e1 ++ case op of
-        And -> undefined
-        Or -> undefined
-        Equals -> undefined
-    (TUnit,_) -> error "Bad Type."
-    (TMethod _,_) -> error "Bad Type."
-    (_,TUnit) -> error "Bad Type."
-    (_,TMethod _) -> error "Bad Type."
--}
-
-
 compileExpression (Println (Typed t expr) _)
     = [GetStatic "java/lang/System" "out" (TClass "java/io/PrintStream")]
         ++ compileExpression (Typed t expr)
         ++ [Invoke "java/io/PrintStream" "println" (TMethod ([t],TUnit))]
+compileExpression (MethodCall (Typed (TClass classType) c) (Symbol _ _ mtype method) args _)
+    = compileExpression c ++ concatMap compileExpression args ++ [Invoke classType (nameOf method) mtype]
+compileExpression (New (Symbol _ _ (TClass classType) obj) _)
+    = [DefaultNew classType]
 compileExpression (LitInt i _) = [Push i]
 compileExpression (LitString s _) = [PushStr s]
 compileExpression (LitFalse _) = [IConst 0]
 compileExpression (LitTrue _) = [IConst 1]
+compileExpression (Typed _ expr)
+    | otherwise = compileExpression expr
 
-compileMain :: MainDeclaration -> [Instruction]
-compileMain (Main{vars,body})
-    = concatMap compileExpression body ++ [Return]
+compileMethod :: MethodDeclaration -> MethodCode
+compileMethod (MethodDeclaration{name,vars,exprs})
+    = MethodCode (nameOf name) args ret (declareVars ++ concatMap compileExpression exprs ++ [Return])
+    where
+        (Symbol i s (TMethod (args,ret)) p) = name
+        declareVars = []
 
-compileClass :: ClassDeclaration -> [Instruction]
-compileClass = undefined
+compileMain :: MainDeclaration -> Main
+compileMain (Main{name, vars, body})
+    = MainCode (nameOf name) (concatMap compileExpression body ++ [Return])
 
-compileProgram :: Program -> [Instruction]
+compileClass :: ClassDeclaration -> Class
+compileClass (Class{name,extends,vars,methods})
+    = ClassCode
+        { name = nameOf name
+        , extends = fmap nameOf extends
+        , fields = []
+        , methods = fmap compileMethod methods
+        }
+
 compileProgram (Program classes main _)
-    = concatMap compileClass classes ++ compileMain main
+    = ProgramCode (fmap compileClass classes, compileMain main)
 
-testCafe :: [Instruction] -> IO ()
-testCafe inst = ClassFile.new "HW" (toOption Nothing)
+buildField :: ClassName -> Field -> [Instruction]
+buildField c (FieldCode{t,name,code}) = code ++ [PutField c name t]
+
+buildMethod :: ClassName -> ClassFile -> MethodCode -> IO ClassFile
+buildMethod className cf (MethodCode{name,args,returnType,body})
+    = ScalaList.fromList argTypes >>= \types ->
+    cf.addMethod (javaType returnType) name types >>= \methodHandler ->
+    methodHandler.codeHandler >>= \codeHandler ->
+    buildCode codeHandler body >>= \_ ->
+    codeHandler.freeze >>= \_ ->
+    pure cf
+    where
+        argTypes = fmap javaType args
+
+buildClass :: Class -> IO ()
+buildClass (ClassCode{name,extends,fields,methods})
+    = ClassFile.new name (toOption extends) >>= \cf ->
+    cf.setSourceFile "HW.java" >>= \_ ->
+    cf.addConstructor (ScalaNil.nil) >>= \mm ->
+    mm.codeHandler >>= \code ->
+    buildCode code constructor >>= \_ ->
+    code.freeze >>= \_ ->
+    foldM (buildMethod name) cf methods >>= \cf' ->
+    cf'.writeToFile (name ++ ".class")
+    where
+        super = fromMaybe "java/lang/Object" extends
+        thisPtr = ALoad 0
+        construct = InvokeSpecial super "<init>" (TMethod ([],TUnit))
+        constructor = thisPtr : construct : concatMap (buildField name) fields ++ [Return]
+
+testCafe :: Prog -> IO ()
+testCafe (ProgramCode (classes, MainCode{name,body}))
+    = traverse buildClass classes
+    >>= \_ -> ClassFile.new name (toOption Nothing)
     >>= \cf -> cf.setSourceFile "HW.java"
     >>= \_ -> cf.addDefaultConstructor
     >>= \_ -> cf.addMainMethod
     >>= \mm -> mm.codeHandler
-    >>= \code -> buildCode code inst
+    >>= \code -> buildCode code body
     >>= \_ -> code.freeze
-    >>= \_ -> cf.writeToFile "HW.class"
+    >>= \_ -> cf.writeToFile (name ++ ".class")
 
--- testCode = "class A{def foo() : Unit = {println(\"Hello, World!\")}} object Main extends App {new A().foo()}"
+testCode = "class A{def foo() : Unit = {println(\"Hello, World!\")}} object Main extends App {new A().foo()}"
 -- testCode = "object Main extends App { println(\"Hello, Dear World!\")}"
 --testCode = "object Main extends App {println(1+3/2*4)}"
-testCode = "object Main extends App {println(1+3)}"
+--testCode = "object Main extends App {println(1+3)}"
 main = let
         (Just ast) = parseCode program testCode
+        -- Left errors = analyzer ast
         (Right ast') = analyzer ast
         prog = compileProgram ast'
     in print ast'
@@ -216,9 +265,11 @@ data Instruction
     | IDIV
     | IXOR
     | StringAppend (TType, [Instruction]) (TType, [Instruction])
-    | Invoke QualifiedClass Method TType
+    | Invoke QualifiedClass String TType
+    | InvokeSpecial QualifiedClass String TType
     | DefaultNew QualifiedClass
     | GetStatic QualifiedClass FieldName TType
+    | PutField QualifiedClass FieldName TType
     | Branch
         { pred :: [Instruction]
         , thenBody :: [Instruction]
@@ -237,27 +288,27 @@ data Field
         , code :: [Instruction]
         }
 
+data MethodCode
+    = MethodCode
+        { name :: String
+        , args :: [TType]
+        , returnType :: TType
+        , body :: [Instruction]
+        }
+
 data Class
     = ClassCode
         { name :: ClassName
         , extends :: Maybe QualifiedClass
         , fields :: [Field]
-        , methods :: [Method]
+        , methods :: [MethodCode]
         }
 
-{-
+data Main
+    = MainCode
+        { name :: ClassName
+        , body :: [Instruction]
+        }
 
--- Compile local var
-compileVar :: VarDeclaration -> [Instruction]
-compileVar (Var (Symbol _ (LocalSymbol _ i) TInt _) _ expr _)
-    = compileExpression expr ++ [IStore i]
-compileVar (Var (Symbol _ (LocalSymbol _ i) TBool _) _ expr _)
-    = compileExpression expr ++ [IStore i]
-compileVar (Var (Symbol i (LocalSymbol _ i) (TClass c) _) _ expr _)
-    = compileExpression expr ++ [AStore i]
-compileVar (Var (Symbol i (LocalSymbol _ i) TString _) _ expr _)
-    = compileExpression expr ++ [AStore i]
-compileVar v
-    = error ("Internal error: " ++ show v ++ " is not a local var")
-
--}
+data Prog
+    = ProgramCode ([Class], Main)
