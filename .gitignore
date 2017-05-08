@@ -1,7 +1,6 @@
 target/
 project/target
 Functors
-Lexer
 *.o
 *.hi
 .DS_Store

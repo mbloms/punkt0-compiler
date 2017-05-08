@@ -110,33 +110,19 @@ testProgram
     , Return
     ]
 
-
-{-
-compileExpression (Typed TString (Symbol Int (SymbolType) TType Identifier) = ALoad i
-compileExpression (Typed TInt (Identifier (Symbol i _ _) _)) = ILoad i
-compileExpression (TypedExpr TString (BinOp ((TypedExpr t1 e1) Add (TypedExpr t2 e2 _)) _))
-    = StringAppend (t1, (compileExpression e1)) (t2, (compileExpression e2))
-compileExpression (TypedExpr returnType (MethodCall c method args _))
-    = compileExpression c ++ fmap compileExpression args ++ [Invoke classType method returnType]
-compileExpression (TypedExpr (TClass classType _) (New obj _))
-    = [DefaultNew classType]
-compileExpression (TypedExpr _ expr)
-    = compileExpression expr
--}
 compileExpression :: Expression -> [Instruction]
-compileExpression (Typed TInt (BinOp e1 op e2 pos)) = case (e1.t,e2.t) of
-    (TInt,TInt) -> compileExpression e2 ++ compileExpression e1 ++ case op of
+compileExpression (Typed TInt (BinOp (Typed TInt e1) op (Typed TInt e2) pos))
+    = compileExpression e2 ++ compileExpression e1 ++ case op of
         Plus -> [LineNum pos.line, IADD]
         Minus -> [LineNum pos.line, ISUB]
         Times -> [LineNum pos.line, IMUL]
         Div -> [LineNum pos.line, IDIV]
-
-
 compileExpression (Typed _ expr)
-    = compileExpression expr
+    | traceLn (show expr) = undefined
+    | otherwise = compileExpression expr
 --compileExpression (If pred body Nothing pos)
 
-{-}
+{-
 compileExpression (Typed TBool (BinOp e1 op e2 pos)) = case (e1.t,e2.t) of
     (TInt,TInt) -> compileExpression e2 ++ compileExpression e1 ++ case op of
         Equals -> _
@@ -165,7 +151,7 @@ compileExpression (Typed TBool (BinOp e1 op e2 pos)) = case (e1.t,e2.t) of
 
 compileExpression (Println (Typed t expr) _)
     = [GetStatic "java/lang/System" "out" (TClass "java/io/PrintStream")]
-        ++ compileExpression expr
+        ++ compileExpression (Typed t expr)
         ++ [Invoke "java/io/PrintStream" "println" (TMethod ([t],TUnit))]
 compileExpression (LitInt i _) = [Push i]
 compileExpression (LitString s _) = [PushStr s]
@@ -183,12 +169,6 @@ compileProgram :: Program -> [Instruction]
 compileProgram (Program classes main _)
     = concatMap compileClass classes ++ compileMain main
 
-testCode = "object Main extends App {println(1+2*4/3-2)}"
-go = let
-        (Just ast) = parseCode program testCode
-        (Right ast') = analyzer ast
-    in compileProgram ast'
-
 testCafe :: [Instruction] -> IO ()
 testCafe inst = ClassFile.new "HW" (toOption Nothing)
     >>= \cf -> cf.setSourceFile "HW.java"
@@ -199,7 +179,16 @@ testCafe inst = ClassFile.new "HW" (toOption Nothing)
     >>= \_ -> code.freeze
     >>= \_ -> cf.writeToFile "HW.class"
 
-main = testCafe go
+-- testCode = "class A{def foo() : Unit = {println(\"Hello, World!\")}} object Main extends App {new A().foo()}"
+-- testCode = "object Main extends App { println(\"Hello, Dear World!\")}"
+--testCode = "object Main extends App {println(1+3/2*4)}"
+testCode = "object Main extends App {println(1+3)}"
+main = let
+        (Just ast) = parseCode program testCode
+        (Right ast') = analyzer ast
+        prog = compileProgram ast'
+    in print ast'
+    >> testCafe prog
 
 type ClassName = String
 type QualifiedClass = String
