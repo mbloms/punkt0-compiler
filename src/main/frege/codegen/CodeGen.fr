@@ -67,6 +67,9 @@ data ScalaIMUL = native "cafebabe.ByteCodes.IMUL$" where
 data ScalaIDIV = native "cafebabe.ByteCodes.IDIV$" where
     pure native o "cafebabe.ByteCodes.IDIV$.MODULE$" :: ByteCode
 
+data ScalaIXOR = native "cafebabe.ByteCodes.IXOR$" where
+    pure native o "cafebabe.ByteCodes.IXOR$.MODULE$" :: ByteCode
+
 
 
 javaType :: TType -> String
@@ -121,15 +124,44 @@ compileExpression (TypedExpr _ expr)
     = compileExpression expr
 -}
 compileExpression :: Expression -> [Instruction]
+compileExpression (Typed TInt (BinOp e1 op e2 pos)) = case (e1.t,e2.t) of
+    (TInt,TInt) -> compileExpression e2 ++ compileExpression e1 ++ case op of
+        Plus -> [LineNum pos.line, IADD]
+        Minus -> [LineNum pos.line, ISUB]
+        Times -> [LineNum pos.line, IMUL]
+        Div -> [LineNum pos.line, IDIV]
+
+
 compileExpression (Typed _ expr)
     = compileExpression expr
+--compileExpression (If pred body Nothing pos)
 
-compileExpression (BinOp e1 op e2 pos) = case (e1.t,e2.t) of
+{-}
+compileExpression (Typed TBool (BinOp e1 op e2 pos)) = case (e1.t,e2.t) of
     (TInt,TInt) -> compileExpression e2 ++ compileExpression e1 ++ case op of
-        Plus -> [IADD]
-        Minus -> [ISUB]
-        Times -> [IMUL]
-        Div -> [IDIV]
+        Equals -> _
+        LessThan -> _
+    (TBool,TBool) -> compileExpression e2 ++ compileExpression e1 ++ case op of
+        Equals -> 
+
+    (TString,TString) -> undefined
+    _ -> compileExpression e2 ++ compileExpression e1
+
+
+
+
+    (TString,TInt) -> undefined
+    (TInt,TString) -> undefined
+    (TBool,TBool) -> compileExpression e2 ++ compileExpression e1 ++ case op of
+        And -> undefined
+        Or -> undefined
+        Equals -> undefined
+    (TUnit,_) -> error "Bad Type."
+    (TMethod _,_) -> error "Bad Type."
+    (_,TUnit) -> error "Bad Type."
+    (_,TMethod _) -> error "Bad Type."
+-}
+
 
 compileExpression (Println (Typed t expr) _)
     = [GetStatic "java/lang/System" "out" (TClass "java/io/PrintStream")]
@@ -189,6 +221,7 @@ data Instruction
     | ISUB
     | IMUL
     | IDIV
+    | IXOR
     | StringAppend (TType, [Instruction]) (TType, [Instruction])
     | Invoke QualifiedClass Method TType
     | DefaultNew QualifiedClass
