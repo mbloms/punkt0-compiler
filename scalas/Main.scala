@@ -1,4 +1,8 @@
-class A {}
+class A {
+  def foo() : Unit = {
+    println("Hello, World!")
+  }
+}
 object Main extends App {
-  0
+  new A().foo()
 }

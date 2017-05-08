@@ -8,3 +8,4 @@ src/main/punkt0/long.p0
 src/main/punkt0/longcomment.p0
 *~
 *.class
+**/*.class
