@@ -1,0 +1,175 @@
+module lexer.Lexer where
+import frege.prelude.PreludeBase (StringJ)
+import punkt0.ScalaShow
+import Data.Monoid
+import Data.Iterators(StringIterator)
+import Control.Second(second)
+import Data.List(find)
+import Data.Char(isAlpha,isAlphaNum,isUpper,isDigit,isLower,isSpace)
+import punkt0.Positioned(Position, Positioned)
+
+abstract data FileIterator = FI {!buffer:: String, !length, !at, !line, !col :: Int} where
+    null FI{at, length} = at >= length
+    next fi
+        | null fi = Nothing --there is no next char
+        | otherwise = case nextIter (fi.buffer.polymorphicElemAt fi.at) fi of
+                Just (c, ni)
+                    -- EOF should be at same line and col as last char
+                    -- we need to increment the offset `at` however
+                    -- in order not to get stuck in a loop
+                    | null ni = Just (c, ni.{line=fi.line,col=fi.col})
+                    | otherwise = Just (c, ni)
+                Nothing = error "Internal lexer erorr"
+        where
+            nextIter c FI{buffer,length,at,line,col}
+                | c == '\n' = Just (c, FI buffer length (at+1) (line+1) 1)
+                | c == '\t' = Just (c, FI buffer length (at+1) (line) (col+4))
+                | otherwise = Just (c, FI buffer length (at+1) line (col+1))
+    from str = FI str str.length 0 1 1
+    empty = from String.empty
+    position FI{at,line,col} = Pos at line col
+    take n fi
+        | n >= 0 = FI fi.buffer (fi.at+n) fi.at fi.line fi.col
+        | otherwise = fi
+
+fileIterator str = FileIterator.from str
+
+abstract data Lexer result
+    = L { !run :: (FileIterator) -> (Maybe (String | result), FileIterator)}
+
+instance Monad (Lexer) where
+    pure x = Lexer.L (\pos -> (Just (Right x), pos))
+    Lexer.L lexer >>= f = Lexer.L bind
+        where
+            bind pos = case lexer pos of
+                (Just (Right result), pos') = case f result of
+                    Lexer.L lexer' = lexer' pos'
+                (Just (Left err), pos') = (Just (Left err), pos')
+                (Nothing, pos') = (Nothing, pos')
+
+instance Alt (Lexer) where
+    Lexer.L lexer <|> Lexer.L lexer' = Lexer.L backtrack
+        where
+            backtrack pos = case lexer pos of
+                (Just (Left err), pos')
+                    | pos'.at == pos.at = lexer' pos -- only backtrack if nothing consumed
+                    | otherwise = (Just (Left err), pos')
+                right -> right
+
+instance Plus (Lexer) where
+    pzero = Lexer.L (\pos -> (Just (Left "Fail"), pos))
+
+optional lexer = (fmap Just lexer) <|> return Nothing
+
+-- strictly accumulate many tokens into
+-- a reverse list, reversing the list
+-- back into order when done
+many !p = fmap reverse (many' [])
+    where
+        many' acc = do
+            a <- optional p
+            case a  of
+                Nothing -> return acc
+                Just a  -> many' (a:acc)
+
+some p = fmap (:) p <*> (many p)
+{-
+-- like many but ignores output
+skipWhile !p = skip'
+    where
+        skip' = do
+            a <- optional p
+            case a  of
+                Nothing -> return ()
+                Just _  -> skip'
+
+skipUntil !p = skipWhile (except p)
+
+-- like some but ignores output
+skipSome !p = ignore (p *> skipWhile p)
+-}
+ignore :: Lexer a -> Lexer b
+ignore lexer = Lexer.L discard
+    where
+        discard (pos :: FileIterator) = case lexer.run pos of
+            (Just (Left err), pos') = (Just (Left err), pos')
+            (_, pos') = (Nothing, pos')
+
+eof = Lexer.L isOver
+    where
+        isOver pos = case pos.next of
+            Just (head, _) = (Just (Left "expected EOF"), pos)
+            otherwise = (Just (Right ()), pos)
+
+satisfy !predicate = Lexer.L sat
+    where
+        sat pos = case pos.next of
+            Just (head, tail)
+                | predicate head = (Just (Right head), tail)
+                | otherwise = (Just (Left "unexpected symbol"), pos)
+            Nothing = (Just (Left "unexpected symbol"), pos)
+except !predicate = Lexer.L nope
+    where
+        nope pos = case pos.next of
+            Just (head, tail)
+                | predicate head = (Just (Left "unexpected token"), pos)
+                | otherwise = (Just (Right ()), tail)
+            _ = (Just (Right ()), pos)
+
+
+item = satisfy (const true)
+
+char c = satisfy (==c)
+
+digit = satisfy (isDigit :: Char -> Bool)
+
+upper = satisfy (isUpper :: Char -> Bool)
+
+lower = satisfy (isLower :: Char -> Bool)
+
+letter = satisfy (isAlpha :: Char -> Bool)
+
+alphanumeric = satisfy (isAlphaNum :: Char -> Bool)
+
+space = satisfy (isSpace :: Char -> Bool)
+
+string = string' . unpacked
+
+string' [] = pure []
+string' (c:cs) = fmap (:) (char c) <*> string' cs
+
+data Lexeme a
+    = Bad Position
+    | Ok a Position
+    | EOF Position
+derive Eq (Lexeme a)
+
+instance Positioned (Lexeme a) where
+    position (Bad pos) = pos
+    position (Ok _ pos) = pos
+    position (EOF pos) = pos
+
+instance Show a => ScalaShow (Lexeme a) where
+    scalashow (Bad pos) = "BAD" ++ scalashow pos
+    scalashow (Ok token pos) = show token ++ scalashow pos
+    scalashow (EOF pos) = "EOF" ++ scalashow pos
+
+checkError :: (FileIterator, FileIterator) -> [Lexeme token] -> [Lexeme token]
+checkError (!errPos, !pos) tokens
+    = if errPos.at /= pos.at
+      then Bad errPos.position : tokens
+      else tokens
+
+scanTokens :: (Show token) => Lexer token -> FileIterator -> [Lexeme token]
+scanTokens lexer startPos = go (startPos, startPos)
+    where
+        go (!errPos :: FileIterator, !pos :: FileIterator) = case lexer.run pos of
+            (Just (Right token), pos')
+                | otherwise = checkError (errPos, pos) $ Ok token (pos.position) : go (pos',pos')
+            (Nothing, pos')
+                | otherwise = checkError (errPos, pos) $ go (pos',pos')
+            (Just (Left _), pos' :: FileIterator) = case pos'.next of
+                Nothing = checkError (errPos, pos') $ [EOF $ pos'.position]
+                Just (_, rest) = if rest.null
+                    then checkError (errPos, pos') $ [EOF $ pos'.position]
+                    else go (errPos, rest)
