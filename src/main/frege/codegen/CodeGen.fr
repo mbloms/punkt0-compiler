@@ -16,10 +16,14 @@ genCode startHandler is = foldM f startHandler is
                 Code c -> handler.append c
 
 genMethod :: ClassName -> ClassFile -> MethodCode -> IO ClassFile
-genMethod className cf (MethodCode{name,args,returnType,body})
+genMethod className cf (MethodCode{name,args,returnType,vars,body})
     = ScalaList.fromList argTypes >>= \types ->
     cf.addMethod (javaType returnType) name types >>= \methodHandler ->
     methodHandler.codeHandler >>= \codeHandler ->
+    -- `cafebabe` requires us to generate vars here since the field
+    -- locals is private in class CodeHandler as is max_locals CodeAttributes
+    traverse (const codeHandler.getFreshVar) args >>= \_ -> -- generate var for each argument
+    traverse (const codeHandler.getFreshVar) vars >>= \_ -> -- generate var for declared var
     genCode codeHandler body >>= \_ ->
     codeHandler.freeze >>= \_ ->
     pure cf
@@ -48,7 +52,7 @@ genClass (ClassCode{name,extends,fields,methods})
         constructor = thisPtr : construct : concatMap (compileFieldInit name) fields ++ [Return]
 
 genProgram :: Prog -> IO ()
-genProgram (ProgramCode (classes, MainCode{name,body}))
+genProgram (ProgramCode (classes, MainCode{name,body,vars}))
     = traverse genClass classes
     >>= \_ -> ClassFile.new name (toOption Nothing)
     >>= \cf -> cf.setSourceFile "HW.java"
@@ -56,6 +60,7 @@ genProgram (ProgramCode (classes, MainCode{name,body}))
     >>= \_ -> cf.addMainMethod
     >>= \mm -> mm.codeHandler
     >>= \code -> genCode code body
+    >>= \_ -> traverse (const code.getFreshVar) vars
     >>= \_ -> code.freeze
     >>= \_ -> cf.writeToFile (name ++ ".class")
 
@@ -64,17 +69,21 @@ testCode = unlines
     [ "class A{"
     , "  var x : Int = 3;"
     , "  def foo() : Unit = {"
+    , "    var y : Int = 42;"
     , "    if (false)"
     , "      println(x)"
     , "    else"
-    , "      println(\"Hello :) \")"
+    , "      println(5)"
     , "    ;"
     , "    println(\"Here\")"
     , "  }"
     , "}"
     , "object Main extends App {"
+    , "  var z : Int = 42;"
     , "  if (true)"
     , "    new A().foo()"
+    , "  ;"
+    , "  println(z)"
     , "}"
     ]
 -- testCode = "object Main extends App { println(\"Hello, Dear World!\")}"

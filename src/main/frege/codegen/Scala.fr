@@ -43,6 +43,7 @@ data CodeHandler = mutable native cafebabe.CodeHandler where
     native append "$less$less" :: CodeHandler -> CodeGenerator -> IO CodeHandler
                                 | CodeHandler -> ByteCode -> IO CodeHandler
     native freeze :: CodeHandler -> IO ()
+    native getFreshVar :: CodeHandler -> IO Int
 
 -- https://github.com/psuter/cafebabe/blob/master/src/main/scala/cafebabe/AbstractByteCode.scala
 data ScalaLineNumber = native "cafebabe.AbstractByteCodes$LineNumber$" where
@@ -50,6 +51,15 @@ data ScalaLineNumber = native "cafebabe.AbstractByteCodes$LineNumber$" where
 
 data ScalaALoad = native "cafebabe.AbstractByteCodes$ALoad$" where
     pure native apply "cafebabe.AbstractByteCodes.ALoad$.MODULE$.apply" :: Int -> CodeGenerator
+
+data ScalaILoad = native "cafebabe.AbstractByteCodes$ILoad$" where
+    pure native apply "cafebabe.AbstractByteCodes.ILoad$.MODULE$.apply" :: Int -> CodeGenerator
+
+data ScalaAStore = native "cafebabe.AbstractByteCodes$AStore$" where
+    pure native apply "cafebabe.AbstractByteCodes.AStore$.MODULE$.apply" :: Int -> CodeGenerator
+
+data ScalaIStore = native "cafebabe.AbstractByteCodes$IStore$" where
+    pure native apply "cafebabe.AbstractByteCodes.IStore$.MODULE$.apply" :: Int -> CodeGenerator
 
 data ScalaPush = native "cafebabe.AbstractByteCodes$Ldc$" where
     pure native apply "cafebabe.AbstractByteCodes.Ldc$.MODULE$.apply" :: String -> CodeGenerator
@@ -131,6 +141,9 @@ data Gen
 getScalaI :: Instruction -> Gen
 getScalaI (LineNum i) = Code $ ScalaLineNumber.apply i
 getScalaI (ALoad i) = Gen $ ScalaALoad.apply i
+getScalaI (ILoad i) = Gen $ ScalaILoad.apply i
+getScalaI (AStore i) = Gen $ ScalaAStore.apply i
+getScalaI (IStore i) = Gen $ ScalaIStore.apply i
 getScalaI (Push i) = Gen $ ScalaPush.apply i
 getScalaI (PushStr s) = Gen $ ScalaPush.apply s
 getScalaI (GetStatic c m t) = Gen $ ScalaGetStatic.apply c m (javaType t)

@@ -55,6 +55,7 @@ data MethodCode
     = MethodCode
         { name :: String
         , args :: [TType]
+        , vars :: [Int]
         , returnType :: TType
         , body :: [Instruction]
         }
@@ -73,6 +74,7 @@ data Main
     = MainCode
         { name :: ClassName
         , body :: [Instruction]
+        , vars :: [Int]
         }
 derive Show Main
 
@@ -109,23 +111,28 @@ compileExpression (Typed TInt (BinOp (Typed TInt e1) op (Typed TInt e2) pos))
         Minus -> [LineNum pos.line, ISUB]
         Times -> [LineNum pos.line, IMUL]
         Div -> [LineNum pos.line, IDIV]
-compileExpression (Println (Typed t expr) _)
-    = [GetStatic "java/lang/System" "out" (TClass "java/io/PrintStream")]
+compileExpression (Println (Typed t expr) pos)
+    = [LineNum pos.line, GetStatic "java/lang/System" "out" (TClass "java/io/PrintStream")]
         ++ compileExpression (Typed t expr)
         ++ [Invoke "java/io/PrintStream" "println" (TMethod ([t],TUnit))]
-compileExpression (MethodCall (Typed (TClass classType) c) (Symbol _ _ mtype method) args _)
-    = compileExpression c ++ concatMap compileExpression args ++ [Invoke classType (nameOf method) mtype]
-compileExpression (New (Symbol _ _ (TClass classType) obj) _)
-    = [DefaultNew classType]
-compileExpression (LitInt i _) = [Push i]
-compileExpression (LitString s _) = [PushStr s]
-compileExpression (LitFalse _) = [Push 0]
-compileExpression (LitTrue _) = [Push 1]
-compileExpression (Identifier (Symbol symid (FieldSymbol c) t name) _) = [ALoad 0, GetField c (nameOf name) t]
-compileExpression (If p t e _)
-    = [Branch (compileExpression p) (compileExpression t) (maybe [] compileExpression e)]
+compileExpression (MethodCall (Typed (TClass classType) c) (Symbol _ _ mtype method) args pos)
+    = LineNum pos.line : compileExpression c ++ concatMap compileExpression args ++ [Invoke classType (nameOf method) mtype]
+compileExpression (New (Symbol _ _ (TClass classType) obj) pos)
+    = [LineNum pos.line, DefaultNew classType]
+compileExpression (LitInt i pos) = [LineNum pos.line, Push i]
+compileExpression (LitString s pos) = [LineNum pos.line, PushStr s]
+compileExpression (LitFalse pos) = [LineNum pos.line, Push 0]
+compileExpression (LitTrue pos) = [LineNum pos.line, Push 1]
+compileExpression (Identifier (Symbol symid (FieldSymbol c) t name) pos) = [LineNum pos.line,ALoad 0, GetField c (nameOf name) t]
+compileExpression (Identifier (Symbol symid (LocalSymbol _ i) t name) pos) = [LineNum pos.line, load t i]
+    where
+        load TInt = ILoad
+        load TBool = ILoad
+        load _ = ALoad
+compileExpression (If p t e pos)
+    = [LineNum pos.line, Branch (compileExpression p) (compileExpression t) (maybe [] compileExpression e)]
 compileExpression (Typed _ expr)
-    | otherwise = compileExpression expr
+    = compileExpression expr
 
 compileFieldInit :: ClassName -> Field -> [Instruction]
 compileFieldInit c (FieldCode{t,name,code}) = ALoad 0 : code ++ [PutField c name t]
@@ -138,16 +145,30 @@ compileField (Var{name, varType, expr})
         , code = compileExpression expr
         }
 
+
+compileVar :: VarDeclaration -> [Instruction]
+compileVar (Var{name = Symbol _ (LocalSymbol _ i) t n, expr})
+    = compileExpression expr ++ [store t i]
+    where
+        store TInt = IStore
+        store TBool = IStore
+        store _ = AStore
+
 compileMethod :: MethodDeclaration -> MethodCode
 compileMethod (MethodDeclaration{name,vars,exprs})
-    = MethodCode (nameOf name) args ret (flattenInstructions_ $ declareVars ++ concatMap compileExpression exprs ++ [Return])
+    = MethodCode (nameOf name) args vs ret
+        (declareVars ++ (flattenInstructions_ $ concatMap compileExpression exprs) ++ [Return])
     where
         (Symbol i s (TMethod (args,ret)) p) = name
-        declareVars = []
+        vs = fmap (const 1) vars
+        declareVars = concatMap compileVar vars
 
 compileMain :: MainDeclaration -> Main
 compileMain (Main{name, vars, body})
-    = MainCode (nameOf name) (flattenInstructions_ $ concatMap compileExpression body ++ [Return])
+    = MainCode (nameOf name) (declareVars ++ (flattenInstructions_ $ concatMap compileExpression body) ++ [Return]) vs
+    where
+        declareVars = concatMap compileVar vars
+        vs = (fmap (const 1) vars)
 
 compileClass :: ClassDeclaration -> Class
 compileClass (Class{name,extends,vars,methods})

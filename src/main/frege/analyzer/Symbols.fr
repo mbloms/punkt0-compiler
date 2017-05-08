@@ -39,7 +39,7 @@ createSymbolsMain :: Int -> MainDeclaration -> (Int, MainDeclaration)
 createSymbolsMain symbol (main@Main{vars}) =
     (j, main.{vars=vars'})
     where
-        (j, vars') = tagIds (\i -> LocalSymbol LocalVar i) symbol vars
+        (j, vars') = tagIds (\i -> LocalSymbol LocalVar (i+1)) symbol vars
 
 tagMain i (main@Main{name})
     = main.{name=Symbol i ClassSymbol (TClass $ nameOf name) name}
