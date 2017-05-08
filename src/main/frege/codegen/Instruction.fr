@@ -29,6 +29,7 @@ data Instruction
     | DefaultNew QualifiedClass
     | GetStatic QualifiedClass FieldName TType
     | PutField QualifiedClass FieldName TType
+    | GetField QualifiedClass FieldName TType
     | Branch
         { pred :: [Instruction]
         , thenBody :: [Instruction]
@@ -91,11 +92,20 @@ compileExpression (LitInt i _) = [Push i]
 compileExpression (LitString s _) = [PushStr s]
 compileExpression (LitFalse _) = [IConst 0]
 compileExpression (LitTrue _) = [IConst 1]
+compileExpression (Identifier (Symbol symid (FieldSymbol c) t name) _) = [ALoad 0, GetField c (nameOf name) t]
 compileExpression (Typed _ expr)
     | otherwise = compileExpression expr
 
-compileField :: ClassName -> Field -> [Instruction]
-compileField c (FieldCode{t,name,code}) = code ++ [PutField c name t]
+compileFieldInit :: ClassName -> Field -> [Instruction]
+compileFieldInit c (FieldCode{t,name,code}) = ALoad 0 : code ++ [PutField c name t]
+
+compileField :: VarDeclaration -> Field
+compileField (Var{name, varType, expr})
+    = FieldCode
+        { name = nameOf name
+        , t = ttype varType
+        , code = compileExpression expr
+        }
 
 compileMethod :: MethodDeclaration -> MethodCode
 compileMethod (MethodDeclaration{name,vars,exprs})
@@ -113,7 +123,7 @@ compileClass (Class{name,extends,vars,methods})
     = ClassCode
         { name = nameOf name
         , extends = fmap nameOf extends
-        , fields = []
+        , fields = fmap compileField vars
         , methods = fmap compileMethod methods
         }
 

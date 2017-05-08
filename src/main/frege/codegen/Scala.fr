@@ -58,6 +58,12 @@ data ScalaPush = native "cafebabe.AbstractByteCodes$Ldc$" where
 data ScalaGetStatic = native "cafebabe.AbstractByteCodes$GetStatic$" where
     pure native apply "cafebabe.AbstractByteCodes.GetStatic$.MODULE$.apply" :: String -> String -> String -> CodeGenerator
 
+data ScalaGetField = native "cafebabe.AbstractByteCodes$GetField$" where
+    pure native apply "cafebabe.AbstractByteCodes.GetField$.MODULE$.apply" :: String -> String -> String -> CodeGenerator
+
+data ScalaPutField = native "cafebabe.AbstractByteCodes$PutField$" where
+    pure native apply "cafebabe.AbstractByteCodes.PutField$.MODULE$.apply" :: String -> String -> String -> CodeGenerator
+
 data ScalaInvoke = native "cafebabe.AbstractByteCodes$InvokeVirtual$" where
     pure native apply "cafebabe.AbstractByteCodes.InvokeVirtual$.MODULE$.apply" :: String -> String -> String -> CodeGenerator
 
@@ -119,6 +125,8 @@ getScalaI (ALoad i) = Gen $ ScalaALoad.apply i
 getScalaI (Push i) = Gen $ ScalaPush.apply i
 getScalaI (PushStr s) = Gen $ ScalaPush.apply s
 getScalaI (GetStatic c m t) = Gen $ ScalaGetStatic.apply c m (javaType t)
+getScalaI (GetField c m t) = Gen $ ScalaGetField.apply c m (javaType t)
+getScalaI (PutField c m t) = Gen $ ScalaPutField.apply c m (javaType t)
 getScalaI (Invoke c m t) = Gen $ ScalaInvoke.apply c m (javaType t)
 getScalaI (InvokeSpecial c m t) = Gen $ ScalaInvokeSpecial.apply c m (javaType t)
 getScalaI (DefaultNew c) = Gen $ ScalaNew.apply c

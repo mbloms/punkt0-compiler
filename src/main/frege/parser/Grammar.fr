@@ -192,8 +192,8 @@ derive Eq LocalType
 
 data SymbolType
     = ClassSymbol
-    | FieldSymbol
-    | MethodSymbol
+    | FieldSymbol String
+    | MethodSymbol String
     | LocalSymbol LocalType Int
 derive Show SymbolType
 derive Eq SymbolType
