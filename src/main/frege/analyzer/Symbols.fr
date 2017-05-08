@@ -22,8 +22,8 @@ createSymbolsClass symbol (Class name extends vars methods pos)
     = (k, Class name extends vars' methods'' pos)
     where
         className = nameOf name
-        (i, vars') = tagIds (const FieldSymbol) symbol vars
-        (j, methods') = tagIds (const MethodSymbol) i methods
+        (i, vars') = tagIds (const $ FieldSymbol className) symbol vars
+        (j, methods') = tagIds (const $ MethodSymbol className) i methods
         (k, methods'') = createSymbolsNested createSymbolsMethod j methods'
         createClass vs (k,ms) = (k, Class name extends vs ms pos)
 

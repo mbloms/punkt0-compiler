@@ -26,21 +26,26 @@ genMethod className cf (MethodCode{name,args,returnType,body})
     where
         argTypes = fmap javaType args
 
+declareField :: ClassName -> ClassFile -> Field -> IO ClassFile
+declareField className cf (FieldCode{name,t})
+    = cf.addField (javaType t) name >> pure cf
+
 genClass :: Class -> IO ()
 genClass (ClassCode{name,extends,fields,methods})
     = ClassFile.new name (toOption extends) >>= \cf ->
+    foldM (declareField name) cf fields >>= \cf ->
     cf.setSourceFile "HW.java" >>= \_ ->
     cf.addConstructor (ScalaNil.nil) >>= \mm ->
     mm.codeHandler >>= \code ->
     genCode code constructor >>= \_ ->
     code.freeze >>= \_ ->
-    foldM (genMethod name) cf methods >>= \cf' ->
-    cf'.writeToFile (name ++ ".class")
+    foldM (genMethod name) cf methods >>= \cf ->
+    cf.writeToFile (name ++ ".class")
     where
         super = fromMaybe "java/lang/Object" extends
         thisPtr = ALoad 0
         construct = InvokeSpecial super "<init>" (TMethod ([],TUnit))
-        constructor = thisPtr : construct : concatMap (compileField name) fields ++ [Return]
+        constructor = thisPtr : construct : concatMap (compileFieldInit name) fields ++ [Return]
 
 genProgram :: Prog -> IO ()
 genProgram (ProgramCode (classes, MainCode{name,body}))
@@ -54,7 +59,8 @@ genProgram (ProgramCode (classes, MainCode{name,body}))
     >>= \_ -> code.freeze
     >>= \_ -> cf.writeToFile (name ++ ".class")
 
-testCode = "class A{def foo() : Unit = {println(\"Hello there ☺️\")}} object Main extends App {new A().foo()}"
+--testCode = "class A{var x : Int = 3; def foo() : Unit = {println(\"Hello there ☺️\"); println(x)}} object Main extends App {new A().foo()}"
+testCode = "class A{var x : Int = 3; def foo() : Unit = {println(x)}} object Main extends App {new A().foo()}"
 -- testCode = "object Main extends App { println(\"Hello, Dear World!\")}"
 --testCode = "object Main extends App {println(1+3/2*4)}"
 --testCode = "object Main extends App {println(1+3)}"
