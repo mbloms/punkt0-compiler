@@ -55,6 +55,9 @@ data ScalaInvoke = native "cafebabe.AbstractByteCodes$InvokeVirtual$" where
 data ScalaReturn = native "cafebabe.ByteCodes.RETURN$" where
     pure native o "cafebabe.ByteCodes.RETURN$.MODULE$" :: ByteCode
 
+data ScalaIADD = native "cafebabe.ByteCodes.IADD$" where
+    pure native o "cafebabe.ByteCodes.IADD$.MODULE$" :: ByteCode
+
 javaType :: TType -> String
 javaType (TMethod (args, ret)) = "(" ++ concat (fmap  javaType args) ++ ")" ++ javaType ret
 javaType TString = "Ljava/lang/String;"
@@ -66,19 +69,19 @@ javaType TUnit = "V"
 data Gen
     = Gen CodeGenerator
     | Code ByteCode
-getScalaI :: Instruction -> IO Gen
-getScalaI (Push i) = pure $ Gen $ ScalaPush.apply i
-getScalaI (PushStr s) = pure $ Gen $ ScalaPush.apply s
-getScalaI (GetStatic c m t) = pure $ Gen $ ScalaGetStatic.apply c m (javaType t)
-getScalaI (Invoke c m t) = pure $ Gen $ ScalaInvoke.apply c m (javaType t)
-getScalaI Return = pure $ Code $ ScalaReturn.o
+getScalaI :: Instruction -> Gen
+getScalaI (Push i) = Gen $ ScalaPush.apply i
+getScalaI (PushStr s) = Gen $ ScalaPush.apply s
+getScalaI (GetStatic c m t) = Gen $ ScalaGetStatic.apply c m (javaType t)
+getScalaI (Invoke c m t) = Gen $ ScalaInvoke.apply c m (javaType t)
+getScalaI Return = Code $ ScalaReturn.o
+getScalaI IAdd = Code $ ScalaIADD.o
 
 buildCode :: CodeHandler -> [Instruction] -> IO CodeHandler
 buildCode startHandler is = foldM f startHandler is
     where
         f handler i
-            = getScalaI i
-            >>= \res -> case res of
+            = case getScalaI i of
                 Gen g -> handler.append g
                 Code c -> handler.append c
 
@@ -91,12 +94,9 @@ testProgram
     ]
 
 
-compileExpression :: Expression -> [Instruction]
 {-
+compileExpression (Typed TString (Symbol Int (SymbolType) TType Identifier) = ALoad i
 compileExpression (Typed TInt (Identifier (Symbol i _ _) _)) = ILoad i
-compileExpression (Typed TString (Identifier (Symbol i _ _) _)) = ALoad i
-compileExpression (Typed TInt (BinOp ((Typed TInt e1) Add (Typed TInt e2 _)) _))
-    = compileExpression e2 ++ compileExpression e1 ++ [IAdd]
 compileExpression (TypedExpr TString (BinOp ((TypedExpr t1 e1) Add (TypedExpr t2 e2 _)) _))
     = StringAppend (t1, (compileExpression e1)) (t2, (compileExpression e2))
 compileExpression (TypedExpr returnType (MethodCall c method args _))
@@ -106,8 +106,17 @@ compileExpression (TypedExpr (TClass classType _) (New obj _))
 compileExpression (TypedExpr _ expr)
     = compileExpression expr
 -}
+compileExpression :: Expression -> [Instruction]
 compileExpression (Typed _ expr)
     = compileExpression expr
+
+compileExpression (BinOp e1 op e2 pos) = case (e1.t,e2.t) of
+    (TInt,TInt) -> compileExpression e2 ++ compileExpression e1 ++ case op of
+        Plus -> [IAdd]
+        Minus -> undefined
+        Times -> undefined
+        Div -> undefined
+
 compileExpression (Println (Typed t expr) _)
     = [GetStatic "java/lang/System" "out" (TClass "java/io/PrintStream")]
         ++ compileExpression expr
@@ -128,7 +137,7 @@ compileProgram :: Program -> [Instruction]
 compileProgram (Program classes main _)
     = concatMap compileClass classes ++ compileMain main
 
-testCode = "object Main extends App {println(\"Hello, World!\")}"
+testCode = "object Main extends App {println(1+2)}"
 go = let
         (Just ast) = parseCode program testCode
         (Right ast') = analyzer ast

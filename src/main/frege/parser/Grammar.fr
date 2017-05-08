@@ -254,7 +254,7 @@ data Expression
     | While {predicate :: Expression, body :: Expression, pos :: Position}
     | Println {expr :: Expression, pos :: Position}
     | Assign {var :: Identifier, expr :: Expression, pos :: Position}
-    | Typed TType Expression
+    | Typed {t :: TType, expr :: Expression}
 derive Eq Expression
 derive Show Expression
 
