@@ -1,0 +1,130 @@
+module punkt0.codegen.Scala where
+import Java.Util(LinkedList, List)
+import Data.Traversable(traverse)
+import punkt0.parser.Grammar
+import punkt0.Typed
+import punkt0.codegen.Instruction
+
+data Option a = pure native scala.Option {a} where
+    pure native empty scala.Option.empty :: () -> Option a
+    pure native apply scala.Option.apply :: a -> Option a
+
+toOption :: Maybe a -> Option a
+toOption Nothing = Option.empty ()
+toOption (Just a) = Option.apply a
+
+-- http://mmhelloworld.github.io/blog/2013/07/10/frege-hello-java/
+-- Try: javap -cp lib/cafebabe_2.11-1.2.jar cafebabe.ClassFile
+-- to see interface
+-- can also run :javap -public cafebabe.ClassFile
+-- in scala repl to see the information
+data ClassFile = mutable native cafebabe.ClassFile where
+    native new :: String -> Option String -> IO ClassFile
+    native setSourceFile :: ClassFile -> String -> IO ()
+    native writeToFile :: ClassFile -> String -> IO ()
+    native addMainMethod :: ClassFile -> IO MethodHandler
+    native addDefaultConstructor :: ClassFile -> IO ()
+    native addField :: ClassFile -> String -> String -> IO FieldHandler
+    native addConstructor :: ClassFile -> ScalaList String -> IO MethodHandler
+    native addMethod :: ClassFile -> String -> String -> ScalaList String -> IO MethodHandler
+
+data FieldHandler = mutable native cafebabe.FieldHandler
+
+data MethodHandler = mutable native cafebabe.MethodHandler where
+    native codeHandler :: MethodHandler -> IO CodeHandler
+
+data ByteCode = pure native "cafebabe.AbstractByteCodes.AbstractByteCode"
+
+data Function1 t r = pure native scala.Function1 {t,r}
+
+type CodeGenerator = Function1 CodeHandler CodeHandler
+
+data CodeHandler = mutable native cafebabe.CodeHandler where
+    native append "$less$less" :: CodeHandler -> CodeGenerator -> IO CodeHandler
+                                | CodeHandler -> ByteCode -> IO CodeHandler
+    native freeze :: CodeHandler -> IO ()
+
+-- https://github.com/psuter/cafebabe/blob/master/src/main/scala/cafebabe/AbstractByteCode.scala
+data ScalaLineNumber = native "cafebabe.AbstractByteCodes$LineNumber$" where
+    pure native apply "cafebabe.AbstractByteCodes.LineNumber$.MODULE$.apply" :: Int -> ByteCode
+
+data ScalaALoad = native "cafebabe.AbstractByteCodes$ALoad$" where
+    pure native apply "cafebabe.AbstractByteCodes.ALoad$.MODULE$.apply" :: Int -> CodeGenerator
+
+data ScalaPush = native "cafebabe.AbstractByteCodes$Ldc$" where
+    pure native apply "cafebabe.AbstractByteCodes.Ldc$.MODULE$.apply" :: String -> CodeGenerator
+                                                                      | Int -> CodeGenerator
+
+data ScalaGetStatic = native "cafebabe.AbstractByteCodes$GetStatic$" where
+    pure native apply "cafebabe.AbstractByteCodes.GetStatic$.MODULE$.apply" :: String -> String -> String -> CodeGenerator
+
+data ScalaInvoke = native "cafebabe.AbstractByteCodes$InvokeVirtual$" where
+    pure native apply "cafebabe.AbstractByteCodes.InvokeVirtual$.MODULE$.apply" :: String -> String -> String -> CodeGenerator
+
+data ScalaInvokeSpecial = native "cafebabe.AbstractByteCodes$InvokeSpecial$" where
+    pure native apply "cafebabe.AbstractByteCodes.InvokeSpecial$.MODULE$.apply" :: String -> String -> String -> CodeGenerator
+
+data ScalaNew = native "cafebabe.AbstractByteCodes$DefaultNew$" where
+    pure native apply "cafebabe.AbstractByteCodes.DefaultNew$.MODULE$.apply" :: String -> CodeGenerator
+
+data ScalaReturn = native "cafebabe.ByteCodes.RETURN$" where
+    pure native o "cafebabe.ByteCodes.RETURN$.MODULE$" :: ByteCode
+
+data ScalaIADD = native "cafebabe.ByteCodes.IADD$" where
+    pure native o "cafebabe.ByteCodes.IADD$.MODULE$" :: ByteCode
+
+data ScalaISUB = native "cafebabe.ByteCodes.ISUB$" where
+    pure native o "cafebabe.ByteCodes.ISUB$.MODULE$" :: ByteCode
+
+data ScalaIMUL = native "cafebabe.ByteCodes.IMUL$" where
+    pure native o "cafebabe.ByteCodes.IMUL$.MODULE$" :: ByteCode
+
+data ScalaIDIV = native "cafebabe.ByteCodes.IDIV$" where
+    pure native o "cafebabe.ByteCodes.IDIV$.MODULE$" :: ByteCode
+
+data ScalaIXOR = native "cafebabe.ByteCodes.IXOR$" where
+    pure native o "cafebabe.ByteCodes.IXOR$.MODULE$" :: ByteCode
+
+data ScalaList t = pure native scala.collection.immutable.List {t} where
+    fromList xs = do
+        l <- LinkedList.new ()
+        l.addAllFromList xs
+        b <- JavaConversions.asScalaBuffer l
+        ScalaBuffer.toList b
+
+data ScalaNil t = pure native scala.collection.immutable.Nil {t} where
+    pure native nil "scala.collection.immutable.Nil$.MODULE$" :: ScalaList t
+
+data ScalaBuffer t = native scala.collection.mutable.Buffer {t} where
+    native toList :: Mutable s (ScalaBuffer t) -> ST s (ScalaList t)
+
+data JavaConversions t = native scala.collection.JavaConversions {t} where
+    native asScalaBuffer "scala.collection.JavaConversions.asScalaBuffer" :: Mutable s (List t) -> ST s (Mutable s (ScalaBuffer t))
+
+javaType :: TType -> String
+javaType (TMethod (args, ret)) = "(" ++ concat (fmap  javaType args) ++ ")" ++ javaType ret
+javaType TString = "Ljava/lang/String;"
+javaType TInt = "I"
+javaType TBool = "Z"
+javaType (TClass c) = "L" ++ c ++ ";"
+javaType TUnit = "V"
+
+data Gen
+    = Gen CodeGenerator
+    | Code ByteCode
+
+getScalaI :: Instruction -> Gen
+getScalaI (LineNum i) = Code $ ScalaLineNumber.apply i
+getScalaI (ALoad i) = Gen $ ScalaALoad.apply i
+getScalaI (Push i) = Gen $ ScalaPush.apply i
+getScalaI (PushStr s) = Gen $ ScalaPush.apply s
+getScalaI (GetStatic c m t) = Gen $ ScalaGetStatic.apply c m (javaType t)
+getScalaI (Invoke c m t) = Gen $ ScalaInvoke.apply c m (javaType t)
+getScalaI (InvokeSpecial c m t) = Gen $ ScalaInvokeSpecial.apply c m (javaType t)
+getScalaI (DefaultNew c) = Gen $ ScalaNew.apply c
+getScalaI Return = Code $ ScalaReturn.o
+getScalaI IADD = Code $ ScalaIADD.o
+getScalaI ISUB = Code $ ScalaISUB.o
+getScalaI IMUL = Code $ ScalaIMUL.o
+getScalaI IDIV = Code $ ScalaIDIV.o
+
