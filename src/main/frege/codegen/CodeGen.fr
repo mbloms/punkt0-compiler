@@ -39,6 +39,9 @@ data CodeHandler = mutable native cafebabe.CodeHandler where
     native freeze :: CodeHandler -> IO ()
 
 -- https://github.com/psuter/cafebabe/blob/master/src/main/scala/cafebabe/AbstractByteCode.scala
+data ScalaLineNumber = native "cafebabe.AbstractByteCodes$LineNumber$" where
+    pure native apply "cafebabe.AbstractByteCodes.LineNumber$.MODULE$.apply" :: Int -> ByteCode
+
 data ScalaALoad = native "cafebabe.AbstractByteCodes$ALoad$" where
     pure native apply "cafebabe.AbstractByteCodes.ALoad$.MODULE$.apply" :: Int -> CodeGenerator
 
@@ -84,6 +87,7 @@ data Gen
     = Gen CodeGenerator
     | Code ByteCode
 getScalaI :: Instruction -> Gen
+getScalaI (LineNum i) = Code $ ScalaLineNumber.apply i
 getScalaI (Push i) = Gen $ ScalaPush.apply i
 getScalaI (PushStr s) = Gen $ ScalaPush.apply s
 getScalaI (GetStatic c m t) = Gen $ ScalaGetStatic.apply c m (javaType t)
