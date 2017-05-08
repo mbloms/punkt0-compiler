@@ -73,6 +73,15 @@ data ScalaInvokeSpecial = native "cafebabe.AbstractByteCodes$InvokeSpecial$" whe
 data ScalaNew = native "cafebabe.AbstractByteCodes$DefaultNew$" where
     pure native apply "cafebabe.AbstractByteCodes.DefaultNew$.MODULE$.apply" :: String -> CodeGenerator
 
+data ScalaLabel = native "cafebabe.AbstractByteCodes$Label$" where
+    pure native apply "cafebabe.AbstractByteCodes.Label$.MODULE$.apply" :: String -> ByteCode
+
+data ScalaGoto = native "cafebabe.AbstractByteCodes$Goto$" where
+    pure native apply "cafebabe.AbstractByteCodes.Goto$.MODULE$.apply" :: String -> ByteCode
+
+data ScalaIfEq = native "cafebabe.AbstractByteCodes$IfEq$" where
+    pure native apply "cafebabe.AbstractByteCodes.IfEq$.MODULE$.apply" :: String -> ByteCode
+
 data ScalaReturn = native "cafebabe.ByteCodes.RETURN$" where
     pure native o "cafebabe.ByteCodes.RETURN$.MODULE$" :: ByteCode
 
@@ -130,6 +139,9 @@ getScalaI (PutField c m t) = Gen $ ScalaPutField.apply c m (javaType t)
 getScalaI (Invoke c m t) = Gen $ ScalaInvoke.apply c m (javaType t)
 getScalaI (InvokeSpecial c m t) = Gen $ ScalaInvokeSpecial.apply c m (javaType t)
 getScalaI (DefaultNew c) = Gen $ ScalaNew.apply c
+getScalaI (Label label) = Code $ ScalaLabel.apply label
+getScalaI (Goto label) = Code $ ScalaGoto.apply label
+getScalaI (IfEq elseLabel) = Code $ ScalaIfEq.apply elseLabel
 getScalaI Return = Code $ ScalaReturn.o
 getScalaI IADD = Code $ ScalaIADD.o
 getScalaI ISUB = Code $ ScalaISUB.o

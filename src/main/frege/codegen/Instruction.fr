@@ -7,13 +7,15 @@ type QualifiedClass = String
 type FieldName = String
 type Method = String
 type VarId = Int
+type Label = String
 
 data Instruction
     = LineNum Int
+    | Label String
+    | Goto String
     | Return
     | Push Int
     | PushStr String
-    | IConst Int
     | ILoad VarId
     | ALoad VarId
     | IStore VarId
@@ -23,7 +25,7 @@ data Instruction
     | IMUL
     | IDIV
     | IXOR
-    | StringAppend (TType, [Instruction]) (TType, [Instruction])
+    | IfEq Label
     | Invoke QualifiedClass String TType
     | InvokeSpecial QualifiedClass String TType
     | DefaultNew QualifiedClass
@@ -47,6 +49,7 @@ data Field
         , name :: FieldName
         , code :: [Instruction]
         }
+derive Show Field
 
 data MethodCode
     = MethodCode
@@ -55,6 +58,7 @@ data MethodCode
         , returnType :: TType
         , body :: [Instruction]
         }
+derive Show MethodCode
 
 data Class
     = ClassCode
@@ -63,15 +67,40 @@ data Class
         , fields :: [Field]
         , methods :: [MethodCode]
         }
+derive Show Class
 
 data Main
     = MainCode
         { name :: ClassName
         , body :: [Instruction]
         }
+derive Show Main
 
 data Prog
     = ProgramCode ([Class], Main)
+derive Show Prog
+
+flattenInstruction label (Branch p t e)
+    = (p' ++ [IfEq elseLabel] ++ t' ++ [Goto afterLabel, Label elseLabel] ++ e' ++ [Label afterLabel], label3)
+    where
+        elseLabel = "else_" ++ (show label)
+        afterLabel = "after_" ++ (show (label+1))
+        label0 = label+2
+        (p', label1) = flattenInstructions p label0
+        (t', label2) = flattenInstructions t label1
+        (e', label3) = flattenInstructions e label2
+flattenInstruction label i = ([i], label)
+
+flattenInstructions :: [Instruction] -> Int -> ([Instruction], Int)
+flattenInstructions xs label0 = (concat yss, label'')
+    where
+        (yss, label'') = foldr flattenOne ([[]], label0) xs
+        flattenOne x (yss, label) = let
+            (ys', label') = flattenInstruction label x
+            in (ys' : yss, label')
+
+flattenInstructions_ :: [Instruction] -> [Instruction]
+flattenInstructions_ xs = fst $ flattenInstructions xs 0
 
 compileExpression :: Expression -> [Instruction]
 compileExpression (Typed TInt (BinOp (Typed TInt e1) op (Typed TInt e2) pos))
@@ -90,9 +119,11 @@ compileExpression (New (Symbol _ _ (TClass classType) obj) _)
     = [DefaultNew classType]
 compileExpression (LitInt i _) = [Push i]
 compileExpression (LitString s _) = [PushStr s]
-compileExpression (LitFalse _) = [IConst 0]
-compileExpression (LitTrue _) = [IConst 1]
+compileExpression (LitFalse _) = [Push 0]
+compileExpression (LitTrue _) = [Push 1]
 compileExpression (Identifier (Symbol symid (FieldSymbol c) t name) _) = [ALoad 0, GetField c (nameOf name) t]
+compileExpression (If p t e _)
+    = [Branch (compileExpression p) (compileExpression t) (maybe [] compileExpression e)]
 compileExpression (Typed _ expr)
     | otherwise = compileExpression expr
 
@@ -109,14 +140,14 @@ compileField (Var{name, varType, expr})
 
 compileMethod :: MethodDeclaration -> MethodCode
 compileMethod (MethodDeclaration{name,vars,exprs})
-    = MethodCode (nameOf name) args ret (declareVars ++ concatMap compileExpression exprs ++ [Return])
+    = MethodCode (nameOf name) args ret (flattenInstructions_ $ declareVars ++ concatMap compileExpression exprs ++ [Return])
     where
         (Symbol i s (TMethod (args,ret)) p) = name
         declareVars = []
 
 compileMain :: MainDeclaration -> Main
 compileMain (Main{name, vars, body})
-    = MainCode (nameOf name) (concatMap compileExpression body ++ [Return])
+    = MainCode (nameOf name) (flattenInstructions_ $ concatMap compileExpression body ++ [Return])
 
 compileClass :: ClassDeclaration -> Class
 compileClass (Class{name,extends,vars,methods})
