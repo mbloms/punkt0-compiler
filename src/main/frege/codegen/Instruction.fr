@@ -1,0 +1,122 @@
+module punkt0.codegen.Instruction where
+import punkt0.parser.Grammar
+import punkt0.Typed
+
+type ClassName = String
+type QualifiedClass = String
+type FieldName = String
+type Method = String
+type VarId = Int
+
+data Instruction
+    = LineNum Int
+    | Return
+    | Push Int
+    | PushStr String
+    | IConst Int
+    | ILoad VarId
+    | ALoad VarId
+    | IStore VarId
+    | AStore VarId
+    | IADD
+    | ISUB
+    | IMUL
+    | IDIV
+    | IXOR
+    | StringAppend (TType, [Instruction]) (TType, [Instruction])
+    | Invoke QualifiedClass String TType
+    | InvokeSpecial QualifiedClass String TType
+    | DefaultNew QualifiedClass
+    | GetStatic QualifiedClass FieldName TType
+    | PutField QualifiedClass FieldName TType
+    | Branch
+        { pred :: [Instruction]
+        , thenBody :: [Instruction]
+        , elseBody :: [Instruction]
+        }
+    | Loop
+        { pred :: [Instruction]
+        , body :: [Instruction]
+        }
+derive Show Instruction
+
+data Field
+    = FieldCode
+        { t :: TType
+        , name :: FieldName
+        , code :: [Instruction]
+        }
+
+data MethodCode
+    = MethodCode
+        { name :: String
+        , args :: [TType]
+        , returnType :: TType
+        , body :: [Instruction]
+        }
+
+data Class
+    = ClassCode
+        { name :: ClassName
+        , extends :: Maybe QualifiedClass
+        , fields :: [Field]
+        , methods :: [MethodCode]
+        }
+
+data Main
+    = MainCode
+        { name :: ClassName
+        , body :: [Instruction]
+        }
+
+data Prog
+    = ProgramCode ([Class], Main)
+
+compileExpression :: Expression -> [Instruction]
+compileExpression (Typed TInt (BinOp (Typed TInt e1) op (Typed TInt e2) pos))
+    = compileExpression e2 ++ compileExpression e1 ++ case op of
+        Plus -> [LineNum pos.line, IADD]
+        Minus -> [LineNum pos.line, ISUB]
+        Times -> [LineNum pos.line, IMUL]
+        Div -> [LineNum pos.line, IDIV]
+compileExpression (Println (Typed t expr) _)
+    = [GetStatic "java/lang/System" "out" (TClass "java/io/PrintStream")]
+        ++ compileExpression (Typed t expr)
+        ++ [Invoke "java/io/PrintStream" "println" (TMethod ([t],TUnit))]
+compileExpression (MethodCall (Typed (TClass classType) c) (Symbol _ _ mtype method) args _)
+    = compileExpression c ++ concatMap compileExpression args ++ [Invoke classType (nameOf method) mtype]
+compileExpression (New (Symbol _ _ (TClass classType) obj) _)
+    = [DefaultNew classType]
+compileExpression (LitInt i _) = [Push i]
+compileExpression (LitString s _) = [PushStr s]
+compileExpression (LitFalse _) = [IConst 0]
+compileExpression (LitTrue _) = [IConst 1]
+compileExpression (Typed _ expr)
+    | otherwise = compileExpression expr
+
+compileField :: ClassName -> Field -> [Instruction]
+compileField c (FieldCode{t,name,code}) = code ++ [PutField c name t]
+
+compileMethod :: MethodDeclaration -> MethodCode
+compileMethod (MethodDeclaration{name,vars,exprs})
+    = MethodCode (nameOf name) args ret (declareVars ++ concatMap compileExpression exprs ++ [Return])
+    where
+        (Symbol i s (TMethod (args,ret)) p) = name
+        declareVars = []
+
+compileMain :: MainDeclaration -> Main
+compileMain (Main{name, vars, body})
+    = MainCode (nameOf name) (concatMap compileExpression body ++ [Return])
+
+compileClass :: ClassDeclaration -> Class
+compileClass (Class{name,extends,vars,methods})
+    = ClassCode
+        { name = nameOf name
+        , extends = fmap nameOf extends
+        , fields = []
+        , methods = fmap compileMethod methods
+        }
+
+compileProgram (Program classes main _)
+    = ProgramCode (fmap compileClass classes, compileMain main)
+
