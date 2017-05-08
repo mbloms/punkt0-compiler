@@ -58,6 +58,17 @@ data ScalaReturn = native "cafebabe.ByteCodes.RETURN$" where
 data ScalaIADD = native "cafebabe.ByteCodes.IADD$" where
     pure native o "cafebabe.ByteCodes.IADD$.MODULE$" :: ByteCode
 
+data ScalaISUB = native "cafebabe.ByteCodes.ISUB$" where
+    pure native o "cafebabe.ByteCodes.ISUB$.MODULE$" :: ByteCode
+
+data ScalaIMUL = native "cafebabe.ByteCodes.IMUL$" where
+    pure native o "cafebabe.ByteCodes.IMUL$.MODULE$" :: ByteCode
+
+data ScalaIDIV = native "cafebabe.ByteCodes.IDIV$" where
+    pure native o "cafebabe.ByteCodes.IDIV$.MODULE$" :: ByteCode
+
+
+
 javaType :: TType -> String
 javaType (TMethod (args, ret)) = "(" ++ concat (fmap  javaType args) ++ ")" ++ javaType ret
 javaType TString = "Ljava/lang/String;"
@@ -75,7 +86,10 @@ getScalaI (PushStr s) = Gen $ ScalaPush.apply s
 getScalaI (GetStatic c m t) = Gen $ ScalaGetStatic.apply c m (javaType t)
 getScalaI (Invoke c m t) = Gen $ ScalaInvoke.apply c m (javaType t)
 getScalaI Return = Code $ ScalaReturn.o
-getScalaI IAdd = Code $ ScalaIADD.o
+getScalaI IADD = Code $ ScalaIADD.o
+getScalaI ISUB = Code $ ScalaISUB.o
+getScalaI IMUL = Code $ ScalaIMUL.o
+getScalaI IDIV = Code $ ScalaIDIV.o
 
 buildCode :: CodeHandler -> [Instruction] -> IO CodeHandler
 buildCode startHandler is = foldM f startHandler is
@@ -112,10 +126,10 @@ compileExpression (Typed _ expr)
 
 compileExpression (BinOp e1 op e2 pos) = case (e1.t,e2.t) of
     (TInt,TInt) -> compileExpression e2 ++ compileExpression e1 ++ case op of
-        Plus -> [IAdd]
-        Minus -> undefined
-        Times -> undefined
-        Div -> undefined
+        Plus -> [IADD]
+        Minus -> [ISUB]
+        Times -> [IMUL]
+        Div -> [IDIV]
 
 compileExpression (Println (Typed t expr) _)
     = [GetStatic "java/lang/System" "out" (TClass "java/io/PrintStream")]
@@ -137,7 +151,7 @@ compileProgram :: Program -> [Instruction]
 compileProgram (Program classes main _)
     = concatMap compileClass classes ++ compileMain main
 
-testCode = "object Main extends App {println(1+2)}"
+testCode = "object Main extends App {println(1+2*4/3-2)}"
 go = let
         (Just ast) = parseCode program testCode
         (Right ast') = analyzer ast
@@ -171,7 +185,10 @@ data Instruction
     | ALoad VarId
     | IStore VarId
     | AStore VarId
-    | IAdd
+    | IADD
+    | ISUB
+    | IMUL
+    | IDIV
     | StringAppend (TType, [Instruction]) (TType, [Instruction])
     | Invoke QualifiedClass Method TType
     | DefaultNew QualifiedClass
