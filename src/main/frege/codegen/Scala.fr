@@ -92,6 +92,9 @@ data ScalaGoto = native "cafebabe.AbstractByteCodes$Goto$" where
 data ScalaIfNe = native "cafebabe.AbstractByteCodes$IfNe$" where
     pure native apply "cafebabe.AbstractByteCodes.IfNe$.MODULE$.apply" :: String -> ByteCode
 
+data ScalaIf_ACmpEq = native "cafebabe.AbstractByteCodes$If_ACmpEq$" where
+    pure native apply "cafebabe.AbstractByteCodes.If_ACmpEq$.MODULE$.apply" :: String -> ByteCode
+
 data ScalaReturn = native "cafebabe.ByteCodes.RETURN$" where
     pure native o "cafebabe.ByteCodes.RETURN$.MODULE$" :: ByteCode
 
@@ -116,6 +119,8 @@ data ScalaIUSHR = native "cafebabe.ByteCodes.IUSHR$" where
 data ScalaSWAP = native "cafebabe.ByteCodes.SWAP$" where
     pure native o "cafebabe.ByteCodes.SWAP$.MODULE$" :: ByteCode
 
+data ScalaACONST_NULL = native "cafebabe.ByteCodes.ACONST_NULL$" where
+    pure native o "cafebabe.ByteCodes.ACONST_NULL$.MODULE$" :: ByteCode
 
 data ScalaList t = pure native scala.collection.immutable.List {t} where
     fromList xs = do
@@ -170,3 +175,5 @@ getScalaI IDIV = Code $ ScalaIDIV.o
 getScalaI IXOR = Code $ ScalaIXOR.o
 getScalaI IUSHR = Code $ ScalaIUSHR.o
 getScalaI Swap = Code $ ScalaSWAP.o
+getScalaI (If_ACmpEq elseLabel) = Code $ ScalaIf_ACmpEq.apply elseLabel
+getScalaI ACONST_NULL = Code $ ScalaACONST_NULL.o

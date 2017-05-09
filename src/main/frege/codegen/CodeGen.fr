@@ -70,7 +70,7 @@ testCode = unlines
     , "  var x : Int = 3;"
     , "  def foo() : Unit = {"
     , "    var y : Int = 42;"
-    , "    if (true||(1/0 == 1))"
+    , "    if (null == null)"
     , "      println(x)"
     , "    else"
     , "      println(5)"
@@ -92,7 +92,9 @@ testCode = unlines
 main = let
         (Just ast) = parseCode program testCode
         -- Left errors = analyzer ast
-        (Right ast') = analyzer ast
+        ast' = case analyzer ast of
+            (Right a) -> a
+            (Left err) -> error $ show err
         instructions = compileProgram ast'
     in println ast'
     >> println instructions
