@@ -150,13 +150,13 @@ compileExpression (Typed TInt (BinOp e1 op e2 pos)) = prependPos pos $ case (e1.
 
 compileExpression (Typed TBool (BinOp e1 op e2 pos)) = prependPos pos $ case (e1.t,e2.t) of
     (TInt,TInt) -> case op of
-        Equals -> [Branch (compileExpression e1 ++ compileExpression e2 ++ [IXOR]) [pushTrue] [pushFalse]] --Branch instruction needed to clean the value from XOR. 
+        Equals -> [Branch (compileExpression e1 ++ compileExpression e2 ++ [IXOR]) [pushTrue] [pushFalse]] --Branch instruction needed to clean the value from XOR.
         -- LessThan implemented using bit-magic instead of branching-logic.
         LessThan -> (compileExpression e1 ++ compileExpression e2 ++ [ISUB,Push 31 , IUSHR,Push 1, IXOR])
 
     (TBool,TBool) -> case op of
         Equals -> compileExpression e1 ++ compileExpression e2 ++ [LineNum pos.line, IXOR]
-        And -> compileExpression (Typed TBool 
+        And -> compileExpression (Typed TBool
             (If e1
                 (If e2
                     (Typed TBool (LitTrue pos))
@@ -164,7 +164,7 @@ compileExpression (Typed TBool (BinOp e1 op e2 pos)) = prependPos pos $ case (e1
                     pos)
                 (Just (Typed TBool (LitFalse pos)))
                 pos))
-        Or -> compileExpression (Typed TBool 
+        Or -> compileExpression (Typed TBool
             (If e1
                 (Typed TBool (LitTrue pos))
                 (Just (Typed TBool (If e2
