@@ -1,6 +1,7 @@
 class A {
+  var x : Int = 3;
   def foo() : Unit = {
-    println("Hello, World!")
+    println(x)
   }
 }
 object Main extends App {
