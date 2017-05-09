@@ -201,8 +201,16 @@ derive Eq SymbolType
 data Identifier
     = ID {str :: String, pos :: Position}
     | Symbol Int SymbolType TType Identifier
-derive Eq Identifier
 derive Show Identifier
+instance Eq Identifier where
+    (ID a _) == (ID b _) = a == b
+    (Symbol _ _ _ a) == (Symbol _ _ _ b) = a == b
+    (Symbol _ _ _ a) == (b@(ID _ _)) = a == b
+    (a@(ID _ _)) == (Symbol _ _ _ b) = a == b
+
+    hashCode (ID a _) = hashCode a
+    hashCode (Symbol _ _ _ a) = hashCode a
+
 instance Ord Identifier where
     (ID a _) <=> (ID b _) = a <=> b
     (Symbol _ _ _ a) <=> (Symbol _ _ _ b) = a <=> b
