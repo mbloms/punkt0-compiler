@@ -136,19 +136,26 @@ prependPos pos rest = LineNum pos.line : rest
 
 compileExpression :: Expression -> [Instruction]
 compileExpression (Typed TInt (BinOp e1 op e2 pos)) = prependPos pos $ case (e1.t,e2.t) of
-    (TInt,TInt) -> compileExpression e2 ++ compileExpression e1 ++ case op of
+    (TInt,TInt) -> compileExpression e1 ++ compileExpression e2 ++ case op of
         Plus -> [LineNum pos.line, IADD]
         Minus -> [LineNum pos.line, ISUB]
         Times -> [LineNum pos.line, IMUL]
         Div -> [LineNum pos.line, IDIV]
 
 compileExpression (Typed TBool (BinOp e1 op e2 pos)) = prependPos pos $ case (e1.t,e2.t) of
-    (TInt,TInt) -> compileExpression e2 ++ compileExpression e1 ++ case op of
-        Equals -> [Branch [IXOR] [pushTrue] [pushFalse]] --Branch instruction needed to clean the value from XOR. 
+    (TInt,TInt) -> case op of
+        Equals -> [Branch (compileExpression e1 ++ compileExpression e2 ++ [IXOR]) [pushTrue] [pushFalse]] --Branch instruction needed to clean the value from XOR. 
         -- LessThan implemented using bit-magic instead of branching-logic.
-        LessThan -> [LineNum pos.line, Swap, ISUB, Push 31, Swap, IUSHR]
+        LessThan -> (compileExpression (Println (Typed TBool e1) pos)) ++ (compileExpression (Println (Typed TBool e2) pos)) ++ (Push 31 : compileExpression e1 ++ compileExpression e2 ++ [ISUB, IUSHR])
+
+--    (TInt,TInt) -> compileExpression e2 ++ compileExpression e1 ++ case op of
+--        Equals -> [Branch [IXOR] [pushTrue] [pushFalse]] --Branch instruction needed to clean the value from XOR. 
+--        -- LessThan implemented using bit-magic instead of branching-logic.
+--        LessThan -> [LineNum pos.line, Swap, ISUB, Push 31, Swap, IUSHR]
+
+
     (TBool,TBool) -> case op of
-        Equals -> compileExpression e2 ++ compileExpression e1 ++ [LineNum pos.line, IXOR]
+        Equals -> compileExpression e1 ++ compileExpression e2 ++ [LineNum pos.line, IXOR]
         And -> compileExpression (Typed TBool 
             (If e1
                 (If e2
@@ -166,7 +173,7 @@ compileExpression (Typed TBool (BinOp e1 op e2 pos)) = prependPos pos $ case (e1
                     pos)))
             pos))
     (t1,t2) -> case op of
-        Equals -> compileExpression e2 ++ compileExpression e1 ++ [ACompare]
+        Equals -> compileExpression e1 ++ compileExpression e2 ++ [ACompare]
 
 compileExpression (Typed TString (BinOp e1 Plus e2 pos)) = prependPos pos $ case (e1.t,e2.t) of
     (TString,TString) -> undefined
@@ -177,6 +184,18 @@ compileExpression (Typed TBool (Not expr pos)) = compileExpression expr ++ [Push
 compileExpression (Block body pos) = prependPos pos $ concatMap compileExpression body
 compileExpression (While pred body pos) = prependPos pos $ [Loop (compileExpression pred) (compileExpression body)]
 
+compileExpression (Typed t (Assign var expr pos)) = compileExpression expr ++ case var of
+    (Symbol _ (FieldSymbol c) t identifier) -> [PutField c (nameOf identifier) t]
+    (Symbol _ (LocalSymbol LocalVar i) t identifier) -> [store t i]
+        where
+            store TInt = IStore
+            store TBool = IStore
+            store _ = AStore
+
+compileExpression (Println (Typed TBool expr) pos)
+    = [LineNum pos.line, GetStatic "java/lang/System" "out" (TClass "java/io/PrintStream")]
+        ++ compileExpression (Typed TBool expr)
+        ++ [Invoke "java/io/PrintStream" "println" (TMethod ([TInt],TUnit))]
 compileExpression (Println (Typed t expr) pos)
     = [LineNum pos.line, GetStatic "java/lang/System" "out" (TClass "java/io/PrintStream")]
         ++ compileExpression (Typed t expr)
