@@ -15,6 +15,8 @@ data Instruction
     | Label String
     | Goto String
     | Return
+    | IReturn
+    | AReturn
     | Push Int
     | PushStr String
     | Duplicate
@@ -250,11 +252,15 @@ compileVar (Var{name = Symbol _ (LocalSymbol _ i) t n, expr})
 compileMethod :: MethodDeclaration -> MethodCode
 compileMethod (MethodDeclaration{name,vars,exprs})
     = MethodCode (nameOf name) args vs ret
-        (declareVars ++ (flattenInstructions_ $ concatMap compileExpression exprs) ++ [Return])
+        (declareVars ++ (flattenInstructions_ $ concatMap compileExpression exprs) ++ [return ret])
     where
         (Symbol i s (TMethod (args,ret)) p) = name
         vs = fmap (const 1) vars
         declareVars = concatMap compileVar vars
+        return TInt = IReturn
+        return TBool = IReturn
+        return TUnit = Return
+        return _ = AReturn
 
 compileMain :: MainDeclaration -> Main
 compileMain (Main{name, vars, body})
