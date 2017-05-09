@@ -70,6 +70,6 @@ main args
                 when (context.pretty && not context.symbolIds) $ runPhase parseTree >>= runIO (println . prettyPrint . snd)
                 when (context.symbolIds) $ runPhase withSymbols >>= runIO (println . prettyPrint . snd)
                 when context.showTypeChecked $ runPhase withSymbols >>= runIO (println . show . snd)
-                runPhase withSymbols >>= runIO (\(_, program) -> compile context.file program)
+                runPhase withSymbols >>= runIO (\(_, program) -> compile context.outDir context.file program)
         in phases
 
