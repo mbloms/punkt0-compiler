@@ -34,12 +34,12 @@ declareField :: ClassName -> ClassFile -> Field -> IO ClassFile
 declareField className cf (FieldCode{name,t})
     = cf.addField (javaType t) name >> pure cf
 
-genClass :: Class -> IO ()
-genClass (ClassCode{name,extends,fields,methods})
+genClass :: String -> Class -> IO ()
+genClass sourceFile (ClassCode{name,extends,fields,methods})
     = ClassFile.new name (toOption extends) >>= \cf ->
     foldM (declareField name) cf fields >>= \cf ->
     foldM (genMethod name) cf methods >>= \cf ->
-    cf.setSourceFile "HW.java" >>= \_ ->
+    cf.setSourceFile sourceFile >>= \_ ->
     cf.addConstructor (ScalaNil.nil) >>= \mm ->
     mm.codeHandler >>= \code ->
     genCode code constructor >>= \_ ->
@@ -49,13 +49,13 @@ genClass (ClassCode{name,extends,fields,methods})
         super = fromMaybe "java/lang/Object" extends
         thisPtr = ALoad 0
         construct = InvokeSpecial super "<init>" (TMethod ([],TUnit))
-        constructor = thisPtr : construct : concatMap (compileFieldInit name) fields ++ [Return]
+        constructor = thisPtr : construct : concatMap (compileFieldInit name) fields ++ [AReturn]
 
-genProgram :: Prog -> IO ()
-genProgram (ProgramCode (classes, MainCode{name,body,vars}))
-    = traverse genClass classes
+genProgram :: String -> Prog -> IO ()
+genProgram sourceFile (ProgramCode (classes, MainCode{name,body,vars}))
+    = traverse (genClass sourceFile) classes
     >>= \_ -> ClassFile.new name (toOption Nothing)
-    >>= \cf -> cf.setSourceFile "HW.java"
+    >>= \cf -> cf.setSourceFile sourceFile
     >>= \_ -> cf.addDefaultConstructor
     >>= \_ -> cf.addMainMethod
     >>= \mm -> mm.codeHandler
@@ -122,4 +122,4 @@ main = let
         instructions = compileProgram ast'
     in println ast'
     >> println instructions
-    >> genProgram instructions
+    >> genProgram "heheehe.p0" instructions
