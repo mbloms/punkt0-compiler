@@ -1,0 +1,8 @@
+
+class A {
+    def foo(x : Int, y : Int) : Int = {x + y}
+}
+
+object Main extends App {
+    println(new A().foo(2))
+}

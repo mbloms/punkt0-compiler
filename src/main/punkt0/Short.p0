@@ -1,0 +1,8 @@
+object Main extends App {
+    if (false && 1/0 == 0)
+        println("Hello")
+    ;if(true || 1/0 == 0)
+        println("WAT!")
+    // ; println(1/0)
+    ; println("OK")
+}
