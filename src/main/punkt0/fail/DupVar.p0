@@ -1,0 +1,16 @@
+class A {
+    var x : Int = 3;
+    var x : Int = 3;
+    def foo() : Unit = {
+        var y : Int = 4;
+        var y : Int = 5;
+        println(y)
+    }
+    def foo() : Unit = {{}}
+}
+
+object Main extends App {
+    var x : Int = 4;
+    var x : Int = 5;
+    x
+}

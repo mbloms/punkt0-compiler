@@ -1,0 +1,5 @@
+object Main extends App {
+    var x : A = null;
+    println(new A().length())
+}
+

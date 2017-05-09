@@ -1,0 +1,11 @@
+class A {
+
+}
+
+class A {
+
+}
+
+object Main extends App {
+    println("Yo!")
+}
