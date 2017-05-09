@@ -74,10 +74,11 @@ exprType env (Identifier identifier pos) = pure $ lookupType env identifier
 exprType env (New identifier pos) = pure $ lookupType env identifier
 exprType env expr = report1 $ TypeError $ CannotDeduceType expr
 
-methodType :: Environment -> MethodName -> Expression -> Analyze (TType,String)
-methodType (supers, interfaces, className) methodName (Typed (TClass c) expr)
-    = maybe (report1 $ NoSuchMethod c methodName (position expr)) pure methodType
+methodType :: Environment -> Identifier -> Expression -> Analyze (TType,String)
+methodType (supers, interfaces, className) name (Typed (TClass c) expr)
+    = maybe (report1 $ NoSuchMethod c methodName (position name)) pure methodType
     where
+        methodName = nameOf name
         iface = lookup c interfaces
         method = iface >>= \(_, methods, _) -> lookup methodName methods
         methodType = fmap (\t -> (typeOf t, c)) method
@@ -146,7 +147,7 @@ typecheckExpression env (MethodCall expr name args pos)
     = toAccumulate check
     where
         check = toEither (fmap (,) (typecheckExpression env expr) <*> (traverse (typecheckExpression env) args))
-            >>= \(expr', args') -> toEither (fmap (,) (methodType env (nameOf name) expr') <*> (traverse (exprType env) args'))
+            >>= \(expr', args') -> toEither (fmap (,) (methodType env name expr') <*> (traverse (exprType env) args'))
             >>= \((t,className), ts) -> toEither (applyUnify env pos t ts)
             >>= \_ -> pure (Typed (returnType t) $ MethodCall expr' (Symbol (-1) (MethodSymbol className) t name) args' pos)
         returnType (TMethod (_, ret)) = ret
