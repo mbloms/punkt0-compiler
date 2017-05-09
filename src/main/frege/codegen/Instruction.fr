@@ -27,7 +27,7 @@ data Instruction
     | IXOR
     | IUSHR
     | Swap
-    | IfEq Label
+    | IfNe Label
     | Invoke QualifiedClass String TType
     | InvokeSpecial QualifiedClass String TType
     | DefaultNew QualifiedClass
@@ -86,7 +86,7 @@ data Prog
 derive Show Prog
 
 flattenInstruction label (Branch p t e)
-    = (p' ++ [IfEq elseLabel] ++ t' ++ [Goto afterLabel, Label elseLabel] ++ e' ++ [Label afterLabel], label3)
+    = (p' ++ [IfNe elseLabel] ++ t' ++ [Goto afterLabel, Label elseLabel] ++ e' ++ [Label afterLabel], label3)
     where
         elseLabel = "else_" ++ (show label)
         afterLabel = "after_" ++ (show (label+1))
@@ -118,7 +118,8 @@ compileExpression (Typed TInt (BinOp e1 op e2 pos)) = case (e1.t,e2.t) of
 compileExpression (Typed TBool (BinOp e1 op e2 pos)) = case (e1.t,e2.t) of
     (TInt,TInt) -> compileExpression e2 ++ compileExpression e1 ++ case op of
         Equals -> [LineNum pos.line, IXOR]
-        LessThan -> [LineNum pos.line, ISUB, Push (-1), IADD, Push 31, Swap, IUSHR] -- Get difference, get sign
+        -- LessThan implemented using bit-magic instead of branching-logic.
+        LessThan -> [LineNum pos.line, Swap, ISUB, Push 31, Swap, IUSHR]
 
 compileExpression (Println (Typed t expr) pos)
     = [LineNum pos.line, GetStatic "java/lang/System" "out" (TClass "java/io/PrintStream")]
@@ -130,8 +131,8 @@ compileExpression (New (Symbol _ _ (TClass classType) obj) pos)
     = [LineNum pos.line, DefaultNew classType]
 compileExpression (LitInt i pos) = [LineNum pos.line, Push i]
 compileExpression (LitString s pos) = [LineNum pos.line, PushStr s]
-compileExpression (LitFalse pos) = [LineNum pos.line, Push 0]
-compileExpression (LitTrue pos) = [LineNum pos.line, Push 1]
+compileExpression (LitFalse pos) = [LineNum pos.line, Push 1]
+compileExpression (LitTrue pos) = [LineNum pos.line, Push 0]
 compileExpression (Identifier (Symbol symid (FieldSymbol c) t name) pos) = [LineNum pos.line,ALoad 0, GetField c (nameOf name) t]
 compileExpression (Identifier (Symbol symid (LocalSymbol _ i) t name) pos) = [LineNum pos.line, load t i]
     where

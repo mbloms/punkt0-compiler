@@ -70,7 +70,7 @@ testCode = unlines
     , "  var x : Int = 3;"
     , "  def foo() : Unit = {"
     , "    var y : Int = 42;"
-    , "    if (1==2)"
+    , "    if (1<2)"
     , "      println(x)"
     , "    else"
     , "      println(5)"
