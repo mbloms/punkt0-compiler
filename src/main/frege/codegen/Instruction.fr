@@ -220,7 +220,7 @@ compileExpression (Identifier (Symbol symid (LocalSymbol _ i) t name) pos) = [Li
         load _ = ALoad
 
 compileExpression (LitNull pos) = [LineNum pos.line, ACONST_NULL]
-compileExpression (LitThis pos) = undefined
+compileExpression (LitThis pos) = [ALoad 0]
 
 compileExpression (If p t e pos)
     = [LineNum pos.line, Branch (compileExpression p) (compileExpression t) (maybe [] compileExpression e)]
