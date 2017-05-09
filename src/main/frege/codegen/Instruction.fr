@@ -25,6 +25,8 @@ data Instruction
     | IMUL
     | IDIV
     | IXOR
+    | IUSHR
+    | Swap
     | IfEq Label
     | Invoke QualifiedClass String TType
     | InvokeSpecial QualifiedClass String TType
@@ -41,6 +43,7 @@ data Instruction
         { pred :: [Instruction]
         , body :: [Instruction]
         }
+    | GetSign -- Use shift to determin sign. Positive number yields 0.
 derive Show Instruction
 
 data Field
@@ -105,12 +108,18 @@ flattenInstructions_ :: [Instruction] -> [Instruction]
 flattenInstructions_ xs = fst $ flattenInstructions xs 0
 
 compileExpression :: Expression -> [Instruction]
-compileExpression (Typed TInt (BinOp (Typed TInt e1) op (Typed TInt e2) pos))
-    = compileExpression e2 ++ compileExpression e1 ++ case op of
+compileExpression (Typed TInt (BinOp e1 op e2 pos)) = case (e1.t,e2.t) of
+    (TInt,TInt) -> compileExpression e2 ++ compileExpression e1 ++ case op of
         Plus -> [LineNum pos.line, IADD]
         Minus -> [LineNum pos.line, ISUB]
         Times -> [LineNum pos.line, IMUL]
         Div -> [LineNum pos.line, IDIV]
+
+compileExpression (Typed TBool (BinOp e1 op e2 pos)) = case (e1.t,e2.t) of
+    (TInt,TInt) -> compileExpression e2 ++ compileExpression e1 ++ case op of
+        Equals -> [LineNum pos.line, IXOR]
+        LessThan -> [LineNum pos.line, ISUB, Push (-1), IADD, Push 31, Swap, IUSHR] -- Get difference, get sign
+
 compileExpression (Println (Typed t expr) pos)
     = [LineNum pos.line, GetStatic "java/lang/System" "out" (TClass "java/io/PrintStream")]
         ++ compileExpression (Typed t expr)

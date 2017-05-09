@@ -110,6 +110,13 @@ data ScalaIDIV = native "cafebabe.ByteCodes.IDIV$" where
 data ScalaIXOR = native "cafebabe.ByteCodes.IXOR$" where
     pure native o "cafebabe.ByteCodes.IXOR$.MODULE$" :: ByteCode
 
+data ScalaIUSHR = native "cafebabe.ByteCodes.IUSHR$" where
+    pure native o "cafebabe.ByteCodes.IUSHR$.MODULE$" :: ByteCode
+
+data ScalaSWAP = native "cafebabe.ByteCodes.SWAP$" where
+    pure native o "cafebabe.ByteCodes.SWAP$.MODULE$" :: ByteCode
+
+
 data ScalaList t = pure native scala.collection.immutable.List {t} where
     fromList xs = do
         l <- LinkedList.new ()
@@ -160,4 +167,6 @@ getScalaI IADD = Code $ ScalaIADD.o
 getScalaI ISUB = Code $ ScalaISUB.o
 getScalaI IMUL = Code $ ScalaIMUL.o
 getScalaI IDIV = Code $ ScalaIDIV.o
-
+getScalaI IXOR = Code $ ScalaIXOR.o
+getScalaI IUSHR = Code $ ScalaIUSHR.o
+getScalaI Swap = Code $ ScalaSWAP.o
