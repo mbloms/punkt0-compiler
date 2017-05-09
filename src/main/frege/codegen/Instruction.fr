@@ -191,7 +191,7 @@ compileExpression (Typed TString (BinOp e1 Plus e2 pos)) = prependPos pos $
         ++ [Invoke sb "toString" (TMethod ([], TString))]
     where
         sb = "java/lang/StringBuilder"
-        addexprs (Typed _ (BinOp e3 Plus e4 _)) = addexprs e3 ++ addexprs e4
+        addexprs (Typed TString (BinOp e3 Plus e4 _)) = addexprs e3 ++ addexprs e4
         addexprs e3 = [e3]
         exprs = addexprs e1 ++ addexprs e2
 
