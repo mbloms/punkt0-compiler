@@ -95,6 +95,9 @@ data ScalaIfNe = native "cafebabe.AbstractByteCodes$IfNe$" where
 data ScalaIf_ACmpEq = native "cafebabe.AbstractByteCodes$If_ACmpEq$" where
     pure native apply "cafebabe.AbstractByteCodes.If_ACmpEq$.MODULE$.apply" :: String -> ByteCode
 
+data ScalaIf_ICmpLt = native "cafebabe.AbstractByteCodes$If_ICmpLt$" where
+    pure native apply "cafebabe.AbstractByteCodes.If_ICmpLt$.MODULE$.apply" :: String -> ByteCode
+
 data ScalaReturn = native "cafebabe.ByteCodes.RETURN$" where
     pure native o "cafebabe.ByteCodes.RETURN$.MODULE$" :: ByteCode
 
@@ -191,6 +194,7 @@ getScalaI IUSHR = Code $ ScalaIUSHR.o
 getScalaI Swap = Code $ ScalaSWAP.o
 getScalaI Pop = Code $ ScalaPOP.o
 getScalaI (If_ACmpEq elseLabel) = Code $ ScalaIf_ACmpEq.apply elseLabel
+getScalaI (If_ICmpLt ltLabel) = Code $ ScalaIf_ICmpLt.apply ltLabel
 getScalaI ACONST_NULL = Code $ ScalaACONST_NULL.o
 getScalaI Duplicate = Code $ ScalaDUP.o
 
