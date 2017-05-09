@@ -28,6 +28,9 @@ data Instruction
     | IUSHR
     | Swap
     | IfNe Label
+    | If_ACmpEq Label
+    | ACompare
+    | ACONST_NULL
     | Invoke QualifiedClass String TType
     | InvokeSpecial QualifiedClass String TType
     | DefaultNew QualifiedClass
@@ -43,8 +46,13 @@ data Instruction
         { pred :: [Instruction]
         , body :: [Instruction]
         }
-    | GetSign -- Use shift to determin sign. Positive number yields 0.
 derive Show Instruction
+
+--alias:
+pushTrue :: Instruction
+pushTrue = Push 0
+pushFalse :: Instruction
+pushFalse = Push 1
 
 data Field
     = FieldCode
@@ -94,6 +102,11 @@ flattenInstruction label (Branch p t e)
         (p', label1) = flattenInstructions p label0
         (t', label2) = flattenInstructions t label1
         (e', label3) = flattenInstructions e label2
+flattenInstruction label ACompare
+    = (If_ACmpEq eqLabel : pushFalse : Goto neLabel : Label eqLabel : pushTrue : Label neLabel : [], label+2)
+    where
+        eqLabel = "eq_" ++ (show label)
+        neLabel = "ne_" ++ (show (label+1))
 flattenInstruction label i = ([i], label)
 
 flattenInstructions :: [Instruction] -> Int -> ([Instruction], Int)
@@ -138,6 +151,9 @@ compileExpression (Typed TBool (BinOp e1 op e2 pos)) = case (e1.t,e2.t) of
                     (Just (Typed TBool (LitFalse pos)))
                     pos)))
             pos))
+    (t1,t2) -> case op of
+        Equals -> compileExpression e2 ++ compileExpression e1 ++ [ACompare]
+
 
 compileExpression (Println (Typed t expr) pos)
     = [LineNum pos.line, GetStatic "java/lang/System" "out" (TClass "java/io/PrintStream")]
@@ -149,8 +165,10 @@ compileExpression (New (Symbol _ _ (TClass classType) obj) pos)
     = [LineNum pos.line, DefaultNew classType]
 compileExpression (LitInt i pos) = [LineNum pos.line, Push i]
 compileExpression (LitString s pos) = [LineNum pos.line, PushStr s]
-compileExpression (LitFalse pos) = [LineNum pos.line, Push 1]
-compileExpression (LitTrue pos) = [LineNum pos.line, Push 0]
+compileExpression (LitFalse pos) = [LineNum pos.line, pushFalse]
+compileExpression (LitTrue pos) = [LineNum pos.line, pushTrue]
+compileExpression (LitNull pos) = [LineNum pos.line, ACONST_NULL]
+
 compileExpression (Identifier (Symbol symid (FieldSymbol c) t name) pos) = [LineNum pos.line,ALoad 0, GetField c (nameOf name) t]
 compileExpression (Identifier (Symbol symid (LocalSymbol _ i) t name) pos) = [LineNum pos.line, load t i]
     where
