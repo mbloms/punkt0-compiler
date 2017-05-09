@@ -32,8 +32,10 @@ data Instruction
     | IXOR
     | IUSHR
     | Swap
+    | LT
     | IfNe Label
     | If_ACmpEq Label
+    | If_ICmpLt Label
     | ACompare
     | ACONST_NULL
     | Invoke QualifiedClass String TType
@@ -107,6 +109,13 @@ flattenInstruction label (Branch p t e)
         (p', label1) = flattenInstructions p label0
         (t', label2) = flattenInstructions t label1
         (e', label3) = flattenInstructions e label2
+
+flattenInstruction label LT
+    = (If_ICmpLt ltLabel : pushFalse : Goto geqLabel : Label ltLabel : pushTrue : Label geqLabel : [], label+1)
+    where
+        ltLabel = "lt_" ++ (show label)
+        geqLabel = "geq_" ++ (show label)
+
 flattenInstruction label ACompare
     = (If_ACmpEq eqLabel : pushFalse : Goto neLabel : Label eqLabel : pushTrue : Label neLabel : [], label+1)
     where
@@ -153,7 +162,7 @@ compileExpression (Typed TBool (BinOp e1 op e2 pos)) = prependPos pos $ case (e1
     (TInt,TInt) -> case op of
         Equals -> [Branch (compileExpression e1 ++ compileExpression e2 ++ [IXOR]) [pushTrue] [pushFalse]] --Branch instruction needed to clean the value from XOR.
         -- LessThan implemented using bit-magic instead of branching-logic.
-        LessThan -> (compileExpression e1 ++ compileExpression e2 ++ [ISUB,Push 31 , IUSHR,Push 1, IXOR])
+        LessThan -> compileExpression e1 ++ compileExpression e2 ++ [LT]
 
     (TBool,TBool) -> case op of
         Equals -> compileExpression e1 ++ compileExpression e2 ++ [LineNum pos.line, IXOR]
