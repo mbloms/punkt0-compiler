@@ -176,10 +176,15 @@ compileExpression (Typed TBool (BinOp e1 op e2 pos)) = prependPos pos $ case (e1
     (t1,t2) -> case op of
         Equals -> compileExpression e1 ++ compileExpression e2 ++ [ACompare]
 
-compileExpression (Typed TString (BinOp e1 Plus e2 pos)) = prependPos pos $ case (e1.t,e2.t) of
-    (TString,TString) -> undefined
-    (TInt,TString) -> undefined
-    (TString,TInt) -> undefined
+compileExpression (Typed TString (BinOp e1 Plus e2 pos)) = prependPos pos $
+    DefaultNew sb :
+        (concatMap (\e -> compileExpression e ++ [Invoke sb "append" (TMethod ([e.t], TClass sb))]) exprs)
+        ++ [Invoke sb "toString" (TMethod ([], TString))]
+    where
+        sb = "java/lang/StringBuilder"
+        addexprs (Typed _ (BinOp e3 Plus e4 _)) = addexprs e3 ++ addexprs e4
+        addexprs e3 = [e3]
+        exprs = addexprs e1 ++ addexprs e2
 
 compileExpression (Typed TBool (Not expr pos)) = compileExpression expr ++ [Push 1, IXOR]
 compileExpression (Block body pos) = prependPos pos $ concatMap compileExpression body
