@@ -55,8 +55,8 @@ leastCommonType env pos t1 t2
 -- Unify type when applying arguments to method call
 applyUnify :: Environment -> Position -> TType -> [TType] -> Analyze TType
 applyUnify env pos (TMethod (tparams, treturn)) targs
-    = traverse (\(p,a) -> unify env pos a p) (zip tparams targs)
-    *> pure treturn
+    | length tparams == length targs = traverse (\(p,a) -> unify env pos a p) (zip tparams targs) *> pure treturn
+    | otherwise = report1 $ TypeError $ UnificationError (TMethod (tparams, treturn)) (TMethod (targs, treturn)) pos
 applyUnify env pos t _ = report1 $ TypeError $ CallOnNonMethod t pos
 
 lookupType :: Environment -> Identifier -> TType
@@ -179,11 +179,15 @@ typecheckExpression env (While predicate body pos)
     where check = toEither (typecheckExpression env predicate)
             >>= \predicate' -> toEither (unify env pos (getType predicate') TBool)
             >>= \_ -> toEither (typecheckExpression env body)
-            >>= \body' -> pure (Typed TUnit (While predicate' body' pos))
-typecheckExpression env (assign@Assign{expr})
+            >>= \body' -> toEither (unify env pos (getType body') TUnit)
+            >>= \_ -> pure (Typed TUnit (While predicate' body' pos))
+typecheckExpression env (assign@Assign{var,expr,pos})
     = toAccumulate check
-    where check = toEither (typecheckExpression env expr)
-            >>= \expr' -> pure (Typed TUnit (assign.{expr=expr'}))
+    where
+        (Symbol i s varType name) = var
+        check = toEither (typecheckExpression env expr)
+            >>= \expr' -> toEither (unify env pos (getType expr') varType)
+            >>= \_ -> pure (Typed TUnit (assign.{expr=expr'}))
 typecheckExpression env (println@Println{expr,pos})
     = toAccumulate check
     where check = toEither (typecheckExpression env expr)
