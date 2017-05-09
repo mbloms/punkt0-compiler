@@ -17,6 +17,7 @@ data Instruction
     | Return
     | Push Int
     | PushStr String
+    | Duplicate
     | ILoad VarId
     | ALoad VarId
     | IStore VarId

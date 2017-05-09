@@ -122,6 +122,9 @@ data ScalaSWAP = native "cafebabe.ByteCodes.SWAP$" where
 data ScalaACONST_NULL = native "cafebabe.ByteCodes.ACONST_NULL$" where
     pure native o "cafebabe.ByteCodes.ACONST_NULL$.MODULE$" :: ByteCode
 
+data ScalaDUP = native "cafebabe.ByteCodes.DUP$" where
+    pure native o "cafebabe.ByteCodes.DUP$.MODULE$" :: ByteCode
+
 data ScalaList t = pure native scala.collection.immutable.List {t} where
     fromList xs = do
         l <- LinkedList.new ()
@@ -177,3 +180,5 @@ getScalaI IUSHR = Code $ ScalaIUSHR.o
 getScalaI Swap = Code $ ScalaSWAP.o
 getScalaI (If_ACmpEq elseLabel) = Code $ ScalaIf_ACmpEq.apply elseLabel
 getScalaI ACONST_NULL = Code $ ScalaACONST_NULL.o
+getScalaI Duplicate = Code $ ScalaDUP.o
+
