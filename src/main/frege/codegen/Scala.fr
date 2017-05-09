@@ -98,6 +98,12 @@ data ScalaIf_ACmpEq = native "cafebabe.AbstractByteCodes$If_ACmpEq$" where
 data ScalaReturn = native "cafebabe.ByteCodes.RETURN$" where
     pure native o "cafebabe.ByteCodes.RETURN$.MODULE$" :: ByteCode
 
+data ScalaIReturn = native "cafebabe.ByteCodes.IRETURN$" where
+    pure native o "cafebabe.ByteCodes.IRETURN$.MODULE$" :: ByteCode
+
+data ScalaAReturn = native "cafebabe.ByteCodes.ARETURN$" where
+    pure native o "cafebabe.ByteCodes.ARETURN$.MODULE$" :: ByteCode
+
 data ScalaIADD = native "cafebabe.ByteCodes.IADD$" where
     pure native o "cafebabe.ByteCodes.IADD$.MODULE$" :: ByteCode
 
@@ -118,6 +124,9 @@ data ScalaIUSHR = native "cafebabe.ByteCodes.IUSHR$" where
 
 data ScalaSWAP = native "cafebabe.ByteCodes.SWAP$" where
     pure native o "cafebabe.ByteCodes.SWAP$.MODULE$" :: ByteCode
+
+data ScalaPOP = native "cafebabe.ByteCodes.POP$" where
+    pure native o "cafebabe.ByteCodes.POP$.MODULE$" :: ByteCode
 
 data ScalaACONST_NULL = native "cafebabe.ByteCodes.ACONST_NULL$" where
     pure native o "cafebabe.ByteCodes.ACONST_NULL$.MODULE$" :: ByteCode
@@ -171,6 +180,8 @@ getScalaI (Label label) = Code $ ScalaLabel.apply label
 getScalaI (Goto label) = Code $ ScalaGoto.apply label
 getScalaI (IfNe elseLabel) = Code $ ScalaIfNe.apply elseLabel
 getScalaI Return = Code $ ScalaReturn.o
+getScalaI IReturn = Code $ ScalaIReturn.o
+getScalaI AReturn = Code $ ScalaAReturn.o
 getScalaI IADD = Code $ ScalaIADD.o
 getScalaI ISUB = Code $ ScalaISUB.o
 getScalaI IMUL = Code $ ScalaIMUL.o
@@ -178,6 +189,7 @@ getScalaI IDIV = Code $ ScalaIDIV.o
 getScalaI IXOR = Code $ ScalaIXOR.o
 getScalaI IUSHR = Code $ ScalaIUSHR.o
 getScalaI Swap = Code $ ScalaSWAP.o
+getScalaI Pop = Code $ ScalaPOP.o
 getScalaI (If_ACmpEq elseLabel) = Code $ ScalaIf_ACmpEq.apply elseLabel
 getScalaI ACONST_NULL = Code $ ScalaACONST_NULL.o
 getScalaI Duplicate = Code $ ScalaDUP.o

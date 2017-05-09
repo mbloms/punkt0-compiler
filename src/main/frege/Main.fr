@@ -12,6 +12,7 @@ import punkt0.parser.Pretty (prettyPrint)
 import punkt0.Positioned
 import punkt0.ScalaShow
 import punkt0.analyzer.Analyzer
+import punkt0.codegen.CodeGen(compile)
 import punkt0.Errors
 
 tokens :: String -> [Lexeme Token]
@@ -46,13 +47,13 @@ parsePhase (input, tokens) =
             Right ((t:_), _) = report1 $ "unexpected" ++ scalashow t
 
 displayHelp :: IO ()
-displayHelp = print "Well. Don't ask me."
+displayHelp = println "Well. Don't ask me."
 
 crashAndBurn :: [String] -> IO ()
 crashAndBurn errors = mapM_ (stderr.println) errors >> System.exit 1
 
 runIO :: (a -> IO ()) -> ([String] | a) -> IO ()
-runIO ok result = either crashAndBurn ok result
+runIO ok result = either crashAndBurn ok result >> System.exit 0
 
 main :: [String] -> IO ()
 main args
@@ -63,10 +64,12 @@ main args
             parseTree = tokens >>= parsePhase
             withSymbols = parseTree >>= analysisPhase
             phases = do
+                when context.help $ displayHelp >> System.exit 0
                 when context.tokens $ runPhase tokens >>= runIO (mapM_ (println . scalashow) . snd)
                 when context.ast $ runPhase parseTree >>= runIO (println . scalashow . snd)
                 when (context.pretty && not context.symbolIds) $ runPhase parseTree >>= runIO (println . prettyPrint . snd)
-                when (context.pretty && context.symbolIds) $ runPhase withSymbols >>= runIO (println . prettyPrint . snd)
+                when (context.symbolIds) $ runPhase withSymbols >>= runIO (println . prettyPrint . snd)
                 when context.showTypeChecked $ runPhase withSymbols >>= runIO (println . show . snd)
+                runPhase withSymbols >>= runIO (\(_, program) -> compile context.file program)
         in phases
 
