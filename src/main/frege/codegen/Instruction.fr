@@ -132,6 +132,9 @@ flattenInstructions xs label0 = (concat yss, label'')
 flattenInstructions_ :: [Instruction] -> [Instruction]
 flattenInstructions_ xs = fst $ flattenInstructions xs 0
 
+traceStack :: [Instruction]
+traceStack = [Duplicate ,GetStatic "java/lang/System" "out" (TClass "java/io/PrintStream"),Swap, Invoke "java/io/PrintStream" "println" (TMethod ([TInt],TUnit))]
+
 prependPos :: Position -> [Instruction] -> [Instruction]
 prependPos pos rest = LineNum pos.line : rest
 
@@ -147,13 +150,7 @@ compileExpression (Typed TBool (BinOp e1 op e2 pos)) = prependPos pos $ case (e1
     (TInt,TInt) -> case op of
         Equals -> [Branch (compileExpression e1 ++ compileExpression e2 ++ [IXOR]) [pushTrue] [pushFalse]] --Branch instruction needed to clean the value from XOR. 
         -- LessThan implemented using bit-magic instead of branching-logic.
-        LessThan -> (compileExpression (Println (Typed TBool e1) pos)) ++ (compileExpression (Println (Typed TBool e2) pos)) ++ (Push 31 : compileExpression e1 ++ compileExpression e2 ++ [ISUB, IUSHR])
-
---    (TInt,TInt) -> compileExpression e2 ++ compileExpression e1 ++ case op of
---        Equals -> [Branch [IXOR] [pushTrue] [pushFalse]] --Branch instruction needed to clean the value from XOR. 
---        -- LessThan implemented using bit-magic instead of branching-logic.
---        LessThan -> [LineNum pos.line, Swap, ISUB, Push 31, Swap, IUSHR]
-
+        LessThan -> (compileExpression e1 ++ compileExpression e2 ++ [ISUB,Push 31 , IUSHR,Push 1, IXOR])
 
     (TBool,TBool) -> case op of
         Equals -> compileExpression e1 ++ compileExpression e2 ++ [LineNum pos.line, IXOR]
@@ -196,7 +193,8 @@ compileExpression (Typed t (Assign var expr pos)) = compileExpression expr ++ ca
 compileExpression (Println (Typed TBool expr) pos)
     = [LineNum pos.line, GetStatic "java/lang/System" "out" (TClass "java/io/PrintStream")]
         ++ compileExpression (Typed TBool expr)
-        ++ [Invoke "java/io/PrintStream" "println" (TMethod ([TInt],TUnit))]
+        ++ [Push 1, IXOR]
+        ++ [Invoke "java/io/PrintStream" "println" (TMethod ([TBool],TUnit))]
 compileExpression (Println (Typed t expr) pos)
     = [LineNum pos.line, GetStatic "java/lang/System" "out" (TClass "java/io/PrintStream")]
         ++ compileExpression (Typed t expr)
