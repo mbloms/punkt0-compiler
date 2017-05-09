@@ -34,8 +34,8 @@ declareField :: ClassName -> ClassFile -> Field -> IO ClassFile
 declareField className cf (FieldCode{name,t})
     = cf.addField (javaType t) name >> pure cf
 
-genClass :: Maybe String -> Class -> IO ()
-genClass sourceFile (ClassCode{name,extends,fields,methods})
+genClass :: Maybe String -> Maybe String -> Class -> IO ()
+genClass outDir sourceFile (ClassCode{name,extends,fields,methods})
     = ClassFile.new name (toOption extends) >>= \cf ->
     foldM (declareField name) cf fields >>= \cf ->
     foldM (genMethod name) cf methods >>= \cf ->
@@ -44,16 +44,18 @@ genClass sourceFile (ClassCode{name,extends,fields,methods})
     mm.codeHandler >>= \code ->
     genCode code constructor >>= \_ ->
     code.freeze >>= \_ ->
-    cf.writeToFile (name ++ ".class")
+    cf.writeToFile (dirName ++ name ++ ".class")
     where
+        dirName = maybe "" (\dir -> dir ++ "/") outDir
         super = fromMaybe "java/lang/Object" extends
         thisPtr = ALoad 0
         construct = InvokeSpecial super "<init>" (TMethod ([],TUnit))
         constructor = thisPtr : construct : concatMap (compileFieldInit name) fields ++ [Return]
 
-genProgram :: Maybe String -> Prog -> IO ()
-genProgram sourceFile (ProgramCode (classes, MainCode{name,body,vars}))
-    = traverse (genClass sourceFile) classes
+genProgram :: Maybe String -> Maybe String -> Prog -> IO ()
+genProgram outDir sourceFile (ProgramCode (classes, MainCode{name,body,vars}))
+    = createDirectory
+    >> traverse (genClass outDir sourceFile) classes
     >>= \_ -> ClassFile.new name (toOption Nothing)
     >>= \cf -> maybe (pure ()) cf.setSourceFile sourceFile
     >>= \_ -> cf.addDefaultConstructor
@@ -62,7 +64,10 @@ genProgram sourceFile (ProgramCode (classes, MainCode{name,body,vars}))
     >>= \code -> genCode code body
     >>= \_ -> traverse (const code.getFreshVar) vars
     >>= \_ -> code.freeze
-    >>= \_ -> cf.writeToFile (name ++ ".class")
+    >>= \_ -> cf.writeToFile (dirName ++ name ++ ".class")
+    where
+        createDirectory = maybe (pure True) (\dir -> File.new dir >>= \f -> f.mkdirs) outDir
+        dirName = maybe "" (\dir -> dir ++ "/") outDir
 
 --testCode = "class A{var x : Int = 3; def foo() : Unit = {println(\"Hello there ☺️\"); println(x)}} object Main extends App {new A().foo()}"
 {-
@@ -122,8 +127,8 @@ main = let
         instructions = compileProgram ast'
     in println ast'
     >> println instructions
-    >> genProgram (Just "heheehe.p0") instructions
+    >> genProgram Nothing (Just "heheehe.p0") instructions
 
-compile :: Maybe String -> Program -> IO ()
-compile sourceFile program = genProgram sourceFile (compileProgram program)
+compile :: Maybe String -> Maybe String -> Program -> IO ()
+compile outDir sourceFile program = genProgram outDir sourceFile (compileProgram program)
 
