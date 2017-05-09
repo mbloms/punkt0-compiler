@@ -120,6 +120,24 @@ compileExpression (Typed TBool (BinOp e1 op e2 pos)) = case (e1.t,e2.t) of
         Equals -> [LineNum pos.line, IXOR]
         -- LessThan implemented using bit-magic instead of branching-logic.
         LessThan -> [LineNum pos.line, Swap, ISUB, Push 31, Swap, IUSHR]
+    (TBool,TBool) -> case op of
+        Equals -> compileExpression e2 ++ compileExpression e1 ++ [LineNum pos.line, IXOR]
+        And -> compileExpression (Typed TBool 
+            (If e1
+                (If e2
+                    (Typed TBool (LitTrue pos))
+                    (Just (Typed TBool (LitFalse pos)))
+                    pos)
+                (Just (Typed TBool (LitFalse pos)))
+                pos))
+        Or -> compileExpression (Typed TBool 
+            (If e1
+                (Typed TBool (LitTrue pos))
+                (Just (Typed TBool (If e2
+                    (Typed TBool (LitTrue pos))
+                    (Just (Typed TBool (LitFalse pos)))
+                    pos)))
+            pos))
 
 compileExpression (Println (Typed t expr) pos)
     = [LineNum pos.line, GetStatic "java/lang/System" "out" (TClass "java/io/PrintStream")]
