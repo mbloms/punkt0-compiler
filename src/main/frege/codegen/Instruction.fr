@@ -1,6 +1,7 @@
 module punkt0.codegen.Instruction where
 import punkt0.parser.Grammar
 import punkt0.Typed
+import punkt0.Positioned (Position)
 
 type ClassName = String
 type QualifiedClass = String
@@ -120,17 +121,20 @@ flattenInstructions xs label0 = (concat yss, label'')
 flattenInstructions_ :: [Instruction] -> [Instruction]
 flattenInstructions_ xs = fst $ flattenInstructions xs 0
 
+prependPos :: Position -> [Instruction] -> [Instruction]
+prependPos pos rest = LineNum pos.line : rest
+
 compileExpression :: Expression -> [Instruction]
-compileExpression (Typed TInt (BinOp e1 op e2 pos)) = case (e1.t,e2.t) of
+compileExpression (Typed TInt (BinOp e1 op e2 pos)) = prependPos pos $ case (e1.t,e2.t) of
     (TInt,TInt) -> compileExpression e2 ++ compileExpression e1 ++ case op of
         Plus -> [LineNum pos.line, IADD]
         Minus -> [LineNum pos.line, ISUB]
         Times -> [LineNum pos.line, IMUL]
         Div -> [LineNum pos.line, IDIV]
 
-compileExpression (Typed TBool (BinOp e1 op e2 pos)) = case (e1.t,e2.t) of
+compileExpression (Typed TBool (BinOp e1 op e2 pos)) = prependPos pos $ case (e1.t,e2.t) of
     (TInt,TInt) -> compileExpression e2 ++ compileExpression e1 ++ case op of
-        Equals -> [LineNum pos.line, IXOR]
+        Equals -> [Branch [IXOR] [pushTrue] [pushFalse]] --Branch instruction needed to clean the value from XOR. 
         -- LessThan implemented using bit-magic instead of branching-logic.
         LessThan -> [LineNum pos.line, Swap, ISUB, Push 31, Swap, IUSHR]
     (TBool,TBool) -> case op of
@@ -154,6 +158,13 @@ compileExpression (Typed TBool (BinOp e1 op e2 pos)) = case (e1.t,e2.t) of
     (t1,t2) -> case op of
         Equals -> compileExpression e2 ++ compileExpression e1 ++ [ACompare]
 
+compileExpression (Typed TString (BinOp e1 Plus e2 pos)) = prependPos pos $ case (e1.t,e2.t) of
+    (TString,TString) -> undefined
+    (TInt,TString) -> undefined
+    (TString,TInt) -> undefined
+
+compileExpression (Typed TBool (Not expr pos)) = compileExpression expr ++ [Push (-1), IXOR]
+
 
 compileExpression (Println (Typed t expr) pos)
     = [LineNum pos.line, GetStatic "java/lang/System" "out" (TClass "java/io/PrintStream")]
@@ -167,14 +178,16 @@ compileExpression (LitInt i pos) = [LineNum pos.line, Push i]
 compileExpression (LitString s pos) = [LineNum pos.line, PushStr s]
 compileExpression (LitFalse pos) = [LineNum pos.line, pushFalse]
 compileExpression (LitTrue pos) = [LineNum pos.line, pushTrue]
-compileExpression (LitNull pos) = [LineNum pos.line, ACONST_NULL]
-
 compileExpression (Identifier (Symbol symid (FieldSymbol c) t name) pos) = [LineNum pos.line,ALoad 0, GetField c (nameOf name) t]
 compileExpression (Identifier (Symbol symid (LocalSymbol _ i) t name) pos) = [LineNum pos.line, load t i]
     where
         load TInt = ILoad
         load TBool = ILoad
         load _ = ALoad
+
+compileExpression (LitNull pos) = [LineNum pos.line, ACONST_NULL]
+compileExpression (LitThis pos) = undefined
+
 compileExpression (If p t e pos)
     = [LineNum pos.line, Branch (compileExpression p) (compileExpression t) (maybe [] compileExpression e)]
 compileExpression (Typed _ expr)
