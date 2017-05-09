@@ -92,16 +92,16 @@ binOpType _ Plus TString TString = pure TString
 binOpType _ Minus TInt TInt = pure TInt
 binOpType _ Times TInt TInt = pure TInt
 binOpType _ Div TInt TInt = pure TInt
-binOpType pos Equals a b = if a == b || (obj a && obj b) 
-    then 
-        pure TBool 
-    else 
+binOpType pos Equals a b = if a == b || (obj a && obj b)
+    then
+        pure TBool
+    else
         report1 $ TypeError $ InvalidOperands Equals a b pos
     where
         obj (TClass _) = true
         obj TAnyRef = true
         obj TBottomRef = true
-
+        obj _ = false
 binOpType _ LessThan TInt TInt = pure TBool
 binOpType _ And TBool TBool = pure TBool
 binOpType _ Or TBool TBool = pure TBool
@@ -197,7 +197,7 @@ typecheckMethod env (MethodDeclaration override name args returnType vars exprs 
     = toAccumulate check
     where
         check = toEither (typecheckExpression env (Block exprs pos))
-            >>= \(Typed t (Block exprs' _)) -> toEither (equalType pos t (ttype returnType))
+            >>= \(Typed t (Block exprs' _)) -> toEither (unify env pos t (ttype returnType))
             >>= \_ -> toEither (traverse (typecheckVar env) vars)
             >>= \vars' -> pure (MethodDeclaration override name args returnType vars' exprs' pos)
 
