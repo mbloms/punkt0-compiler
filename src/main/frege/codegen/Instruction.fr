@@ -1,7 +1,7 @@
 module punkt0.codegen.Instruction where
 import punkt0.parser.Grammar
 import punkt0.Typed
-import punkt0.Positioned (Position)
+import punkt0.Positioned (Position, position)
 
 type ClassName = String
 type QualifiedClass = String
@@ -14,6 +14,7 @@ data Instruction
     = LineNum Int
     | Label String
     | Goto String
+    | Pop
     | Return
     | IReturn
     | AReturn
@@ -113,7 +114,7 @@ flattenInstruction label ACompare
         neLabel = "ne_" ++ (show label)
 
 flattenInstruction label (Loop pred body)
-    = ((Label while : p') ++ (IfNe break : b') ++ [Goto while,Label break], label+1)
+    = ((Label while : p') ++ (IfNe break : b') ++ [Goto while,Label break], label2)
     where
         while = "while_" ++ show label
         break = "break_" ++ show label
@@ -186,16 +187,22 @@ compileExpression (Typed TString (BinOp e1 Plus e2 pos)) = prependPos pos $
         exprs = addexprs e1 ++ addexprs e2
 
 compileExpression (Typed TBool (Not expr pos)) = compileExpression expr ++ [Push 1, IXOR]
-compileExpression (Block body pos) = prependPos pos $ concatMap compileExpression body
+compileExpression (Block [] pos) = []
+compileExpression (Block xs pos) = prependPos pos $ concatMap oneExpr (init xs) ++ compileExpression (last xs)
+    where
+        oneExpr (Typed TUnit x) = compileExpression x
+        oneExpr (Typed _ x) = compileExpression x ++ [Pop]
+
 compileExpression (While pred body pos) = prependPos pos $ [Loop (compileExpression pred) (compileExpression body)]
 
-compileExpression (Typed t (Assign var expr pos)) = compileExpression expr ++ case var of
-    (Symbol _ (FieldSymbol c) t identifier) -> [PutField c (nameOf identifier) t]
-    (Symbol _ (LocalSymbol LocalVar i) t identifier) -> [store t i]
+compileExpression (Assign var expr pos) = case var of
+    (Symbol _ (FieldSymbol c) t identifier) -> ALoad 0 : compileExpression expr ++ [PutField c (nameOf identifier) t]
+    (Symbol _ (LocalSymbol LocalVar i) t identifier) -> compileExpression expr ++ [store t i]
         where
             store TInt = IStore
             store TBool = IStore
             store _ = AStore
+    _ -> error (show expr)
 
 compileExpression (Println (Typed TBool expr) pos)
     = [LineNum pos.line, GetStatic "java/lang/System" "out" (TClass "java/io/PrintStream")]
@@ -249,25 +256,32 @@ compileVar (Var{name = Symbol _ (LocalSymbol _ i) t n, expr})
         store TBool = IStore
         store _ = AStore
 
+-- compileArg :: (Identifier, Type) -> [Instruction]
+-- compileArg (Symbol _ (LocalSymbol Param i) TInt name, _) = IStore i
+-- compileArg (Symbol _ (LocalSymbol Param i) TBool name, _) = IStore i
+-- compileArg (Symbol _ (LocalSymbol Param i) TBool name, _) = IStore i
+
 compileMethod :: MethodDeclaration -> MethodCode
-compileMethod (MethodDeclaration{name,vars,exprs})
-    = MethodCode (nameOf name) args vs ret
-        (declareVars ++ (flattenInstructions_ $ concatMap compileExpression exprs) ++ [return ret])
+compileMethod (MethodDeclaration{name,args,vars,exprs})
+    = MethodCode (nameOf name) argTypes vs ret
+        (declareVars ++ (flattenInstructions_ $ compileExpression body) ++ [return ret])
     where
-        (Symbol i s (TMethod (args,ret)) p) = name
+        (Symbol i s (TMethod (argTypes,ret)) p) = name
         vs = fmap (const 1) vars
         declareVars = concatMap compileVar vars
         return TInt = IReturn
         return TBool = IReturn
         return TUnit = Return
         return _ = AReturn
+        body = (Block exprs (position name))
 
 compileMain :: MainDeclaration -> Main
 compileMain (Main{name, vars, body})
-    = MainCode (nameOf name) (declareVars ++ (flattenInstructions_ $ concatMap compileExpression body) ++ [Return]) vs
+    = MainCode (nameOf name) (declareVars ++ (flattenInstructions_ $ compileExpression body') ++ [Return]) vs
     where
         declareVars = concatMap compileVar vars
         vs = (fmap (const 1) vars)
+        body' = (Block body (position name))
 
 compileClass :: ClassDeclaration -> Class
 compileClass (Class{name,extends,vars,methods})
