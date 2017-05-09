@@ -98,16 +98,26 @@ flattenInstruction label (Branch p t e)
     = (p' ++ [IfNe elseLabel] ++ t' ++ [Goto afterLabel, Label elseLabel] ++ e' ++ [Label afterLabel], label3)
     where
         elseLabel = "else_" ++ (show label)
-        afterLabel = "after_" ++ (show (label+1))
-        label0 = label+2
+        afterLabel = "after_" ++ (show label)
+        label0 = label+1
         (p', label1) = flattenInstructions p label0
         (t', label2) = flattenInstructions t label1
         (e', label3) = flattenInstructions e label2
 flattenInstruction label ACompare
-    = (If_ACmpEq eqLabel : pushFalse : Goto neLabel : Label eqLabel : pushTrue : Label neLabel : [], label+2)
+    = (If_ACmpEq eqLabel : pushFalse : Goto neLabel : Label eqLabel : pushTrue : Label neLabel : [], label+1)
     where
         eqLabel = "eq_" ++ (show label)
-        neLabel = "ne_" ++ (show (label+1))
+        neLabel = "ne_" ++ (show label)
+
+flattenInstruction label (Loop pred body)
+    = ((Label while : p') ++ (IfNe break : b') ++ [Goto while,Label break], label+1)
+    where
+        while = "while_" ++ show label
+        break = "break_" ++ show label
+        label0 = label+1
+        (p', label1) = flattenInstructions pred label0
+        (b', label2) = flattenInstructions body label1
+
 flattenInstruction label i = ([i], label)
 
 flattenInstructions :: [Instruction] -> Int -> ([Instruction], Int)
@@ -163,8 +173,9 @@ compileExpression (Typed TString (BinOp e1 Plus e2 pos)) = prependPos pos $ case
     (TInt,TString) -> undefined
     (TString,TInt) -> undefined
 
-compileExpression (Typed TBool (Not expr pos)) = compileExpression expr ++ [Push (-1), IXOR]
-
+compileExpression (Typed TBool (Not expr pos)) = compileExpression expr ++ [Push 1, IXOR]
+compileExpression (Block body pos) = prependPos pos $ concatMap compileExpression body
+compileExpression (While pred body pos) = prependPos pos $ [Loop (compileExpression pred) (compileExpression body)]
 
 compileExpression (Println (Typed t expr) pos)
     = [LineNum pos.line, GetStatic "java/lang/System" "out" (TClass "java/io/PrintStream")]
