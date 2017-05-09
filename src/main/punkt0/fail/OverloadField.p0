@@ -1,0 +1,12 @@
+
+class A {
+    var x : Int = 3;
+}
+
+class B extends A {
+    var x : Int = 4;
+}
+
+object Main extends App {
+    3
+}

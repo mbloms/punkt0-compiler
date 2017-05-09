@@ -1,0 +1,16 @@
+class A {}
+
+class B extends A {
+    def foo() : Int = {3}
+    def bar() : A = {new B()}
+}
+
+
+object Main extends App {
+    var a : A = new B();
+    var b : B = new A();
+    var c : B = new B();
+    c.bar().foo();
+    a.foo();
+    3
+}
