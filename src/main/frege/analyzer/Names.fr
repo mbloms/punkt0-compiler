@@ -112,7 +112,7 @@ analyzeExpr env (Block exprs pos)
 analyzeExpr env (Println expr pos)
     = fmap Println (analyzeExpr env expr) <*> pure pos
 analyzeExpr env (Assign var expr pos)
-    =  analyzeAssign var *> fmap (Assign var) (analyzeExpr env expr) <*> pure pos
+    =  analyzeAssign var *> fmap Assign (lookupVar env var) <*> (analyzeExpr env expr) <*> pure pos
 analyzeExpr env (If p body elseBody pos)
     = fmap If (analyzeExpr env p) <*> (analyzeExpr env body) <*> (traverse (analyzeExpr env) elseBody) <*> pure pos
 analyzeExpr env (While p body pos)
