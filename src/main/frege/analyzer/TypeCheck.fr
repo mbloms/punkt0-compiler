@@ -91,12 +91,16 @@ binOpType _ Plus TString TString = pure TString
 binOpType _ Minus TInt TInt = pure TInt
 binOpType _ Times TInt TInt = pure TInt
 binOpType _ Div TInt TInt = pure TInt
-binOpType _ Equals TInt TInt = pure TBool
-binOpType _ Equals TBool TBool = pure TBool
-binOpType _ Equals TString TString = pure TBool
-binOpType _ Equals (TClass c) (TClass d) = pure TBool
-binOpType _ Equals (TClass c) TAnyRef = pure TBool
-binOpType _ Equals TAnyRef (TClass c) = pure TBool
+binOpType pos Equals a b = if a == b || (obj a && obj b) 
+    then 
+        pure TBool 
+    else 
+        report1 $ TypeError $ InvalidOperands Equals a b pos
+    where
+        obj (TClass _) = true
+        obj TAnyRef = true
+        obj TBottomRef = true
+
 binOpType _ LessThan TInt TInt = pure TBool
 binOpType _ And TBool TBool = pure TBool
 binOpType _ Or TBool TBool = pure TBool
