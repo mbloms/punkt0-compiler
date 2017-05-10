@@ -1,0 +1,10 @@
+
+
+
+object Main extends App {
+  if (false)
+  	7
+  else {}
+  	;
+  println("df")
+}
