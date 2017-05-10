@@ -95,6 +95,9 @@ showAnalyzeError input (NonConstantDeclaration p)
     = showErrorAt (lines input) ("Expression in variable declaration must be constant.") p
 showAnalyzeError input (ParamAssign v p)
     = showErrorAt (lines input) ("'" ++ v ++ "' is a method parameter and cannot be reassigned.") p
+showAnalyzeError input (InvalidThis p)
+    = showErrorAt (lines input) ("Invalid this...") p
+
 
 
 type Analyze a = Accumulate [AnalyzeError] a

@@ -157,6 +157,7 @@ compileExpression (Typed TInt (BinOp e1 op e2 pos)) = prependPos pos $ case (e1.
         Minus -> [LineNum pos.line, ISUB]
         Times -> [LineNum pos.line, IMUL]
         Div -> [LineNum pos.line, IDIV]
+        _ -> error $ show (BinOp e1 op e2 pos)
 
 compileExpression (Typed TBool (BinOp e1 op e2 pos)) = prependPos pos $ case (e1.t,e2.t) of
     (TInt,TInt) -> case op of
@@ -211,7 +212,7 @@ compileExpression (Assign var expr pos) = case var of
             store TInt = IStore
             store TBool = IStore
             store _ = AStore
-    _ -> error (show expr)
+    _ -> error $ show (Assign var expr pos) ++ "has no pattern."
 
 compileExpression (Println (Typed TBool expr) pos)
     = [LineNum pos.line, GetStatic "java/lang/System" "out" (TClass "java/io/PrintStream")]
@@ -244,6 +245,7 @@ compileExpression (If p t e pos)
     = [LineNum pos.line, Branch (compileExpression p) (compileExpression t) (maybe [] compileExpression e)]
 compileExpression (Typed _ expr)
     = compileExpression expr
+compileExpression e = error $ "No pattern for Expression" ++ show e
 
 compileFieldInit :: ClassName -> Field -> [Instruction]
 compileFieldInit c (FieldCode{t,name,code}) = ALoad 0 : code ++ [PutField c name t]

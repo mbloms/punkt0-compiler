@@ -192,7 +192,7 @@ typecheckExpression env (While predicate body pos)
             >>= \body' -> toEither (unify env pos (getType body') TUnit)
             >>= \_ -> pure (Typed TUnit (While predicate' body' pos))
 typecheckExpression env (assign@Assign{var,expr,pos})
-    = toAccumulate check
+    = analyzeAssign var pos *> toAccumulate check
     where
         (Symbol i s varType name) = var
         check = toEither (typecheckExpression env expr)
@@ -205,6 +205,11 @@ typecheckExpression env (println@Println{expr,pos})
                                 <|> unify env pos (getType expr') TBool
                                 <|> unify env pos (getType expr') TString)
             >>= \_ -> pure (Typed TUnit (println.{expr=expr'}))
+
+analyzeAssign :: Identifier -> Position -> Analyze ()
+analyzeAssign (Symbol _ (LocalSymbol Param _) _ i) pos = report1 (ParamAssign (nameOf i) pos)
+analyzeAssign (i@ID _ _) = error $ "Internal error: No symbol assigned." ++ show i ++ show pos
+analyzeAssign _ _ = pure ()
 
 typecheckMethod :: Environment -> MethodDeclaration -> Analyze MethodDeclaration
 typecheckMethod env (MethodDeclaration override name args returnType vars exprs pos)

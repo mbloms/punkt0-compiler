@@ -15,6 +15,20 @@ data Environment = Env
     , vars    :: HashMap String Identifier
     }
 
+verifySym :: Identifier -> Bool
+verifySym (Symbol _ _ _ _) = true
+verifySym i = error $ "Symbol not set for "++show i
+
+verifyMap :: HashMap a Identifier -> Bool
+verifyMap m
+    | all verifySym (values m) = true
+    | otherwise = error "Oops."
+
+verifyEnv :: Environment -> Environment
+verifyEnv (e@Env c m v)
+    | all verifyMap [c,m,v] = e
+    | otherwise = error "How do you even?"
+
 namedMap :: (Named a) => [a] -> HashMap String a
 namedMap xs = fromList $ fmap (\x -> (nameOf x, x)) xs
 
@@ -112,7 +126,7 @@ analyzeExpr env (Block exprs pos)
 analyzeExpr env (Println expr pos)
     = fmap Println (analyzeExpr env expr) <*> pure pos
 analyzeExpr env (Assign var expr pos)
-    =  analyzeAssign var *> fmap Assign (lookupVar env var) <*> (analyzeExpr env expr) <*> pure pos
+    =  fmap Assign (lookupVar env var) <*> (analyzeExpr env expr) <*> pure pos
 analyzeExpr env (If p body elseBody pos)
     = fmap If (analyzeExpr env p) <*> (analyzeExpr env body) <*> (traverse (analyzeExpr env) elseBody) <*> pure pos
 analyzeExpr env (While p body pos)
@@ -124,10 +138,6 @@ analyzeExpr _ (e@LitNull{}) = pure e
 analyzeExpr _ (e@LitTrue{}) = pure e
 analyzeExpr _ (e@LitFalse{}) = pure e
 analyzeExpr _ (e@Typed{}) = pure e
-
-analyzeAssign :: Identifier -> Analyze ()
-analyzeAssign (Symbol _ (LocalSymbol Param _) _ i) = report1 (ParamAssign (nameOf i) (position i))
-analyzeAssign _ = pure ()
 
 analyzeVar :: Environment -> VarDeclaration -> Analyze VarDeclaration
 analyzeVar env (var@Var{expr,varType,pos}) = typeExists *> case expr of
@@ -151,7 +161,7 @@ analyzeMethod env (m@MethodDeclaration{vars,args,exprs})
     where
         -- has to be a list to find duplicates
         declared = (fmap idOf vars ++ fmap idOf args)
-        env' = env.{vars=namedMap declared `union` env.vars}
+        env' = verifyEnv $ env.{vars=namedMap declared `union` env.vars}
 
 analyzeClass :: Interfaces -> Environment -> ClassDeclaration -> Analyze ClassDeclaration
 analyzeClass interfaces env (Class name extends vars methods pos)
@@ -161,7 +171,7 @@ analyzeClass interfaces env (Class name extends vars methods pos)
         <*> pure pos
     where
         (vars', methods', names) = unJust (lookup (nameOf name) interfaces)
-        env' = env.{vars = fmap idOf vars', methods = fmap idOf methods'}
+        env' = verifyEnv $ env.{vars = fmap idOf vars', methods = fmap idOf methods'}
 
 analyzeMain :: Environment -> MainDeclaration -> Analyze MainDeclaration
 analyzeMain env (m@Main{vars, body})
@@ -171,7 +181,7 @@ analyzeMain env (m@Main{vars, body})
         <*> (traverse (analyzeVar env') vars)
     where
         declared = fmap idOf vars
-        env' = env.{vars=namedMap declared}
+        env' = verifyEnv $ env.{vars=namedMap declared}
 
 analyzeNames' :: Interfaces -> Program -> Analyze Program
 analyzeNames' interfaces (Program classes main pos)
@@ -191,6 +201,6 @@ analyzeNames (program@Program classes main pos)
         ALeft errors -> ALeft errors <* analyzeMain env main
             where
                 classNames = namedMap (fmap idOf classes)
-                env = Env {classes = classNames, methods = empty, vars = empty}
+                env = verifyEnv $ Env {classes = classNames, methods = empty, vars = empty}
         ARight result -> fmap (\p -> (result, p)) $ analyzeNames' result (Program classes main pos)
 
