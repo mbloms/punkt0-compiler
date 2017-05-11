@@ -38,8 +38,8 @@ type ClassDeclaration = SafeClassDeclaration Identifier Expression
 type MainDeclaration = SafeMainDeclaration Identifier Expression
 
 data SafeProgram i e = Program [SafeClassDeclaration i e] (SafeMainDeclaration i e) Position
-derive Eq Program
-derive Show Program
+derive Eq (SafeProgram i e)
+derive Show (SafeProgram i e)
 
 toProgram [] main = Program [] main main.position
 toProgram (c:rest) main = Program (c:rest) main c.position
@@ -57,8 +57,8 @@ data SafeClassDeclaration i e = Class
     , methods :: [SafeMethodDeclaration i e]
     , pos :: Position
     }
-derive Eq ClassDeclaration
-derive Show ClassDeclaration
+derive Eq (SafeClassDeclaration i e)
+derive Show (SafeClassDeclaration i e)
 
 instance Positioned (SafeClassDeclaration i e) where
     position Class{pos} = pos
@@ -135,8 +135,8 @@ data SafeMethodDeclaration i e = MethodDeclaration
     , exprs :: [e]
     , pos :: Position
     }
-derive Eq MethodDeclaration
-derive Show MethodDeclaration
+derive Eq (SafeMethodDeclaration i e)
+derive Show (SafeMethodDeclaration i e)
 
 instance Positioned (SafeMethodDeclaration i e) where
     position MethodDeclaration{pos} = pos
@@ -250,10 +250,10 @@ data BinOp
 derive Show BinOp
 derive Eq BinOp
 
-type Expression = SafeExpression Identifier
-data SafeExpression i
-    = BinOp {lhs :: (SafeExpression i), op :: BinOp, rhs :: (SafeExpression i), pos :: Position}
-    | MethodCall (SafeExpression i) i [(SafeExpression i)] Position
+--type Expression = ()
+data SafeExpression i e
+    = BinOp {lhs :: e, op :: BinOp, rhs :: e, pos :: Position}
+    | MethodCall e i [e] Position
     | LitInt Int Position
     | LitString String Position
     | LitTrue Position
@@ -262,19 +262,35 @@ data SafeExpression i
     | LitThis Position
     | LitNull Position
     | New {obj ::i, pos :: Position}
-    | Not {expr :: (SafeExpression i), pos :: Position}
-    | Block [(SafeExpression i)] Position
-    | If { predicate :: (SafeExpression i)
-         , body :: (SafeExpression i)
-         , elseBody :: (Maybe (SafeExpression i))
+    | Not {expr :: e, pos :: Position}
+    | Block [e] Position
+    | If { predicate :: e
+         , body :: e
+         , elseBody :: (Maybe e)
          , pos :: Position
          }
-    | While {predicate :: (SafeExpression i), body :: (SafeExpression i), pos :: Position}
-    | Println {expr :: (SafeExpression i), pos :: Position}
-    | Assign {var :: i, expr :: (SafeExpression i), pos :: Position}
-    | Typed {t :: TType, expr :: (SafeExpression i)}
+    | While {predicate :: e, body :: e, pos :: Position}
+    | Println {expr :: e, pos :: Position}
+    | Assign {var :: i, expr :: e, pos :: Position}
+    | Typed {t :: TType, expr :: e}
 derive Eq (SafeExpression i)
 derive Show (SafeExpression i)
+
+data TypedExpression i e = Typed {t :: TType, expr :: e}
+
+type Algebra f a = f a -> a
+type Expression i = Fix (SafeExpression i)  
+data Fix f = Fx (f (Fix f))
+
+data BaseExpression i
+    = LitInt Int Position
+    | LitString String Position
+    | LitTrue Position
+    | LitFalse Position
+    | Identifier {id :: i, pos :: Position}
+    | LitThis Position
+    | LitNull Position
+    | New {obj ::i, pos :: Position}
 
 instance Typed (Identifier, Type) where
     typeOf (_, t) = ttype t
