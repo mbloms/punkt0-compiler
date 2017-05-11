@@ -33,7 +33,11 @@ tokenType t = token (Tokens.Type t)
 
 tokenEOF = symbol (Lexeme.EOF undefined)
 
-data Program = Program [ClassDeclaration] MainDeclaration Position
+type Program = SafeProgram Identifier Expression
+type ClassDeclaration = SafeClassDeclaration Identifier Expression
+type MainDeclaration = SafeMainDeclaration Identifier Expression
+
+data SafeProgram i e = Program [SafeClassDeclaration i e] (SafeMainDeclaration i e) Position
 derive Eq Program
 derive Show Program
 
@@ -43,17 +47,20 @@ toProgram (c:rest) main = Program (c:rest) main c.position
 program :: Parser Lex Program
 program = fmap toProgram (many classDeclaration) <*> mainDeclaration <* tokenEOF
 
-data ClassDeclaration = Class
-    { name :: Identifier
-    , extends :: (Maybe Identifier)
-    , vars :: [VarDeclaration]
-    , methods :: [MethodDeclaration]
+type VarDeclaration = SafeVarDeclaration Identifier Expression
+type MethodDeclaration = SafeMethodDeclaration Identifier Expression
+
+data SafeClassDeclaration i e = Class
+    { name :: i
+    , extends :: (Maybe i)
+    , vars :: [SafeVarDeclaration i e]
+    , methods :: [SafeMethodDeclaration i e]
     , pos :: Position
     }
 derive Eq ClassDeclaration
 derive Show ClassDeclaration
 
-instance Positioned ClassDeclaration where
+instance Positioned (SafeClassDeclaration i e) where
     position Class{pos} = pos
 
 instance Typed ClassDeclaration where
@@ -71,17 +78,17 @@ classDeclaration = do
     (vars, methods) <- braces $ fmap (,) (many varDeclaration) <*> (many methodDeclaration)
     return $ Class name extends vars methods cls.position
 
-data MainDeclaration = Main
-    { name :: Identifier
-    , extends :: Identifier
-    , vars :: [VarDeclaration]
-    , body :: [Expression]
+data SafeMainDeclaration i e = Main
+    { name :: i
+    , extends :: i
+    , vars :: [SafeVarDeclaration i e]
+    , body :: [e]
     , pos :: Position
     }
-derive Eq MainDeclaration
-derive Show MainDeclaration
+derive Eq (SafeMainDeclaration i e)
+derive Show (SafeMainDeclaration i e)
 
-instance Positioned MainDeclaration where
+instance Positioned (SafeMainDeclaration i e) where
     position Main{pos} = pos
 
 mainDeclaration :: Parser Lex MainDeclaration
@@ -94,16 +101,17 @@ mainDeclaration = do
         body <- list1 expression (token Tokens.SemiColon)
         return $! Main name extends vars body obj.position
 
-data VarDeclaration = Var
-    { name :: Identifier
+data SafeVarDeclaration i e = Var
+    { name :: i
     , varType :: Type
-    , expr :: Expression
+    , expr :: e
     , pos :: Position
     }
-derive Eq VarDeclaration
-derive Show VarDeclaration
-instance Positioned VarDeclaration where
+derive Eq (SafeVarDeclaration i e)
+derive Show (SafeVarDeclaration i e)
+instance Positioned (SafeVarDeclaration i e) where
     position Var{pos} = pos
+
 instance Typed VarDeclaration where
     typeOf (Var{varType}) = ttype varType
 
@@ -118,18 +126,19 @@ varDeclaration = do
     token Tokens.SemiColon
     return $ Var name t expr name.position
 
-data MethodDeclaration = MethodDeclaration
+data SafeMethodDeclaration i e = MethodDeclaration
     { override :: Bool
-    , name :: Identifier
-    , args :: [(Identifier, Type)]
+    , name :: i
+    , args :: [(i, Type)]
     , returnType :: Type
     , vars :: [VarDeclaration]
-    , exprs :: [Expression]
+    , exprs :: [e]
     , pos :: Position
     }
 derive Eq MethodDeclaration
 derive Show MethodDeclaration
-instance Positioned MethodDeclaration where
+
+instance Positioned (SafeMethodDeclaration i e) where
     position MethodDeclaration{pos} = pos
 
 instance Typed MethodDeclaration where
@@ -241,35 +250,36 @@ data BinOp
 derive Show BinOp
 derive Eq BinOp
 
-data Expression
-    = BinOp {lhs :: Expression, op :: BinOp, rhs :: Expression, pos :: Position}
-    | MethodCall Expression Identifier [Expression] Position
+type Expression = SafeExpression Identifier
+data SafeExpression i
+    = BinOp {lhs :: (SafeExpression i), op :: BinOp, rhs :: (SafeExpression i), pos :: Position}
+    | MethodCall (SafeExpression i) i [(SafeExpression i)] Position
     | LitInt Int Position
     | LitString String Position
     | LitTrue Position
     | LitFalse Position
-    | Identifier {id :: Identifier, pos :: Position}
+    | Identifier {id :: i, pos :: Position}
     | LitThis Position
     | LitNull Position
-    | New {obj ::Identifier, pos :: Position}
-    | Not {expr :: Expression, pos :: Position}
-    | Block [Expression] Position
-    | If { predicate :: Expression
-         , body :: Expression
-         , elseBody :: (Maybe Expression)
+    | New {obj ::i, pos :: Position}
+    | Not {expr :: (SafeExpression i), pos :: Position}
+    | Block [(SafeExpression i)] Position
+    | If { predicate :: (SafeExpression i)
+         , body :: (SafeExpression i)
+         , elseBody :: (Maybe (SafeExpression i))
          , pos :: Position
          }
-    | While {predicate :: Expression, body :: Expression, pos :: Position}
-    | Println {expr :: Expression, pos :: Position}
-    | Assign {var :: Identifier, expr :: Expression, pos :: Position}
-    | Typed {t :: TType, expr :: Expression}
-derive Eq Expression
-derive Show Expression
+    | While {predicate :: (SafeExpression i), body :: (SafeExpression i), pos :: Position}
+    | Println {expr :: (SafeExpression i), pos :: Position}
+    | Assign {var :: i, expr :: (SafeExpression i), pos :: Position}
+    | Typed {t :: TType, expr :: (SafeExpression i)}
+derive Eq (SafeExpression i)
+derive Show (SafeExpression i)
 
 instance Typed (Identifier, Type) where
     typeOf (_, t) = ttype t
 
-instance Positioned Expression where
+instance Positioned (SafeExpression i) where
     position (Typed _ e) = position e
     position (BinOp _ _ _ pos) = pos
     position (MethodCall _ _ _ pos) = pos
