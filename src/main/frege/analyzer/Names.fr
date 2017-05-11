@@ -15,21 +15,6 @@ data Environment = Env
     , vars    :: HashMap String Identifier
     }
 
-verifySym :: Identifier -> Bool
-verifySym (Symbol _ _ _ _) = true
-verifySym i = error $ "Symbol not set for "++show i
-
-verifyMap :: HashMap a Identifier -> Bool
-verifyMap m
-    | all verifySym (values m) = true
-    | otherwise = error "Oops."
-
-verifyEnv :: Environment -> Environment
-verifyEnv e = e
-verifyEnv (e@Env c m v)
-    | all verifyMap [c,m,v] = e
-    | otherwise = error "How do you even?"
-
 namedMap :: (Named a) => [a] -> HashMap String a
 namedMap xs = fromList $ fmap (\x -> (nameOf x, x)) xs
 
@@ -162,7 +147,7 @@ analyzeMethod env (m@MethodDeclaration{vars,args,exprs})
     where
         -- has to be a list to find duplicates
         declared = (fmap idOf vars ++ fmap idOf args)
-        env' = verifyEnv $ env.{vars=namedMap declared `union` env.vars}
+        env' = env.{vars=namedMap declared `union` env.vars}
 
 analyzeClass :: Interfaces -> Environment -> ClassDeclaration -> Analyze ClassDeclaration
 analyzeClass interfaces env (Class name extends vars methods pos)
@@ -172,7 +157,7 @@ analyzeClass interfaces env (Class name extends vars methods pos)
         <*> pure pos
     where
         (vars', methods', names) = unJust (lookup (nameOf name) interfaces)
-        env' = verifyEnv $ env.{vars = fmap idOf vars', methods = fmap idOf methods'}
+        env' =  env.{vars = fmap idOf vars', methods = fmap idOf methods'}
 
 analyzeMain :: Environment -> MainDeclaration -> Analyze MainDeclaration
 analyzeMain env (m@Main{vars, body})
@@ -182,7 +167,7 @@ analyzeMain env (m@Main{vars, body})
         <*> (traverse (analyzeVar env') vars)
     where
         declared = fmap idOf vars
-        env' = verifyEnv $ env.{vars=namedMap declared}
+        env' = env.{vars=namedMap declared}
 
 analyzeNames' :: Interfaces -> Program -> Analyze Program
 analyzeNames' interfaces (Program classes main pos)
@@ -202,6 +187,6 @@ analyzeNames (program@Program classes main pos)
         ALeft errors -> ALeft errors <* analyzeMain env main
             where
                 classNames = namedMap (fmap idOf classes)
-                env = verifyEnv $ Env {classes = classNames, methods = empty, vars = empty}
+                env = Env {classes = classNames, methods = empty, vars = empty}
         ARight result -> fmap (\p -> (result, p)) $ analyzeNames' result (Program classes main pos)
 
