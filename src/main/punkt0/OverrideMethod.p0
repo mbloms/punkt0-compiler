@@ -1,0 +1,12 @@
+
+class A {
+    def foo() : Int = {3}
+}
+
+class B extends A {
+    override def foo() : Int = {4}
+}
+
+object Main extends App {
+    5
+}

@@ -1,0 +1,68 @@
+module parser.Parser where
+import punkt0.Positioned
+import punkt0.ScalaShow
+
+data Parser token result = Parser {run :: [token] -> ([String] | ([token],result))}
+
+parse :: Parser token result -> [token] -> ([String] | ([token], result))
+parse parser = parser.run
+
+instance Functor (Parser token) where
+    fmap f p = Parser (fmap (fmap f) • p.run)
+
+instance Applicative (Parser token) where
+    fparser <*> xparser = Parser $ \tokens ->
+        case fparser.run tokens of
+            Left err -> Left err
+            Right (tokens', f) ->
+                case xparser.run tokens' of
+                    Left err -> Left err
+                    Right (tokens'', x) -> Right (tokens'', f x)
+    pure x = Parser (\tokens -> Right (tokens, x))
+
+instance Monad (Parser token) where
+    pure x = Parser (\tokens -> Right (tokens, x))
+    aparser >>= f = Parser $ \tokens ->
+        case aparser.run tokens of
+            Left err -> Left err
+            Right (tokens', a) -> (f a).run tokens'
+
+instance Alt (Parser token) where
+    p <|> q = Parser $ \tokens ->
+        case p.run tokens of
+            Left errs -> q.run tokens
+            result -> result
+
+instance Plus (Parser token) where
+    pzero = Parser (\tokens -> Left ["parse error"])
+
+(<?>) :: Parser a b -> String -> Parser a b
+parser <?> msg = Parser $ \tokens ->
+    case parser.run tokens of
+        Left errs -> Left $ msg : errs
+        right -> right
+
+satisfy :: (Positioned token, ScalaShow token) => (token -> Bool) -> Parser token token
+satisfy predicate = Parser $ \tokens ->
+    case tokens of
+        [] -> Left ["Out of input"]
+        (t:rest) -> if predicate t
+            then Right (rest,t)
+            else Left ["Does not match predicate for " ++ scalashow t]
+
+many !p = fmap reverse (many' [])
+    where
+        many' acc = do
+            a <- optional p
+            case a  of
+                Nothing -> return acc
+                Just a  -> many' (a:acc)
+
+some !v = fmap (:) v <*> many v
+
+item = satisfy (const true)
+
+symbol t = satisfy (== t)
+
+optional parser = fmap Just parser <|> pure Nothing
+

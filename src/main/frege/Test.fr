@@ -1,5 +1,6 @@
 module Test where
 
+import punkt0.ScalaShow
 import frege.test.QuickCheck
 import lexer.Lexer(scanTokens, FileIterator)
 import parser.Parser(parse)
@@ -214,19 +215,11 @@ instance Arbitrary Program where
           , main' <- shrink main
           ]
 
-parseCode code parser =
-    let
-        tokens = (scanTokens token) . FileIterator.from $ code
-        parsed = parse parser tokens
-    in case parsed of
-        [([], parseTree)] -> Just parseTree
-        _ -> Nothing
-
 prop_pretty_expr :: Expression -> Bool
 prop_pretty_expr ast =
     let
         code = prettyPrint ast
-        parseTree = parseCode code (expression <* tokenEOF)
+        parseTree = parseCode (expression <* tokenEOF) code
     in if Just ast == parseTree
         then true
         else if traceLn code
@@ -237,7 +230,7 @@ prop_pretty_method :: MethodDeclaration -> Bool
 prop_pretty_method ast =
     let
         code = prettyPrint ast
-        parseTree = parseCode code (methodDeclaration <* tokenEOF)
+        parseTree = parseCode (methodDeclaration <* tokenEOF) code
     in if Just ast == parseTree
         then true
         else if traceLn $ code ++ (unlines [scalashow ast, "\n\t/=\n", scalashow parseTree])
@@ -249,7 +242,7 @@ prop_pretty_program ast
  | otherwise =
     let
         code = prettyPrint ast
-        parseTree = parseCode code program
+        parseTree = parseCode program code
     in if Just ast == parseTree
         then true
         else if traceLn $ code ++ (unlines [scalashow ast, "\n\t/=\n", scalashow parseTree])

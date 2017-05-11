@@ -1,0 +1,21 @@
+
+class Form {}
+class Shape extends Form {}
+class Square extends Shape {}
+class Circle extends Shape {}
+class Car {}
+
+object Main extends App {
+    var s : Shape = null;
+    var s2 : Shape = null;
+    s = (if (true)
+            new Square()
+        else
+            new Circle()
+    );
+    s2 = (if (false)
+            new Shape()
+        else
+            new Car()
+    )
+}

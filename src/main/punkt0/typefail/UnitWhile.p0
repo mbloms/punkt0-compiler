@@ -1,0 +1,9 @@
+
+object Main extends App {
+    var x : Int = 0;
+    while (x < 3) {
+        x = x + 1;
+        x
+    };
+    println(4)
+}

@@ -1,0 +1,11 @@
+
+class A {
+    def foo(x : Int) : Int = {
+        var x : Int = 4;
+        x
+    }
+}
+
+object Main extends App {
+    println("Hi")
+}

@@ -1,0 +1,4 @@
+module punkt0.ScalaShow where
+
+class ScalaShow a where
+    scalashow :: a -> String

@@ -67,6 +67,9 @@ instance Pretty MainDeclaration where
 
 instance Pretty Identifier where
     prettyf (ID str _) = (Word str :)
+    prettyf (Symbol i _ _ (ID str _))
+        | i == -1 = ((Word (str ++ "#??")) :)
+        | otherwise = ((Word (str ++ "#" ++ show i)) :)
 
 instance Pretty VarDeclaration where
     prettyf !Var{name,varType,expr}
@@ -112,6 +115,8 @@ instance Pretty Char where
     prettyf c = (Char c :)
 
 instance Pretty Expression where
+    prettyf (Typed _ expr)
+        = prettyf expr
     prettyf (LitTrue _)
         = prettyf "true"
     prettyf (LitFalse _)

@@ -5,6 +5,7 @@ import frege.control.monad.trans.MonadTrans
 import frege.control.monad.trans.MonadIO
 
 data Accumulate e a = ALeft e | ARight a
+derive Show (Accumulate e a)
 
 toEither :: Accumulate e a -> (e | a)
 toEither (ALeft e) = Left e
@@ -13,6 +14,10 @@ toEither (ARight a) = Right a
 toAccumulate :: (e | a) -> Accumulate e a
 toAccumulate (Left e) = ALeft e
 toAccumulate (Right a) = ARight a
+
+mapError :: (e -> f) -> Accumulate [e] a -> Accumulate [f] a
+mapError f (ALeft es) = (ALeft (fmap f es))
+mapError _ (ARight a) = (ARight a)
 
 instance Functor (Accumulate e) where
     fmap f (ARight x) = ARight $ f x
@@ -25,6 +30,11 @@ instance Semigroup e => Applicative (Accumulate e) where
     ALeft e <*> ALeft e' = ALeft (e <> e')
     ALeft e <*> _ = ALeft e
     _ <*> ALeft e = ALeft e
+
+instance Semigroup e => Alt (Accumulate e) where
+    (a@ARight _) <|> _ = a
+    _ <|> (a@ARight _) = a
+    (ALeft e1) <|> (ALeft e2) = ALeft (e1 <> e2)
 
 data ReporterT e m a = ReporterT {!run :: m (Accumulate e a)}
 
@@ -39,6 +49,8 @@ instance (Applicative f, Semigroup e) => Applicative (ReporterT e f) where
 
 report1 :: e -> Accumulate [e] a
 report1 msg = ALeft [msg]
+
+reportMany errs = ALeft errs
 
 runReporterT :: Applicative m => ReporterT e m a -> m (e | a)
 runReporterT reporter = fmap toEither reporter.run

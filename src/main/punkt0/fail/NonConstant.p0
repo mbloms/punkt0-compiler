@@ -1,0 +1,6 @@
+object Main extends App {
+    var x : Int = if (true) 3 else 4;
+    var y : Int = 3 + 4;
+    var z : Int = {5};
+    x
+}

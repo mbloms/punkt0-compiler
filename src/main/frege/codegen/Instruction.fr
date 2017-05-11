@@ -1,0 +1,314 @@
+module punkt0.codegen.Instruction where
+import punkt0.parser.Grammar
+import punkt0.Typed
+import punkt0.Positioned (Position, position)
+
+type ClassName = String
+type QualifiedClass = String
+type FieldName = String
+type Method = String
+type VarId = Int
+type Label = String
+
+data Instruction
+    = LineNum Int
+    | Label String
+    | Goto String
+    | Pop
+    | Return
+    | IReturn
+    | AReturn
+    | Push Int
+    | PushStr String
+    | Duplicate
+    | ILoad VarId
+    | ALoad VarId
+    | IStore VarId
+    | AStore VarId
+    | IADD
+    | ISUB
+    | IMUL
+    | IDIV
+    | IXOR
+    | IUSHR
+    | Swap
+    | LT
+    | IfNe Label
+    | If_ACmpEq Label
+    | If_ICmpLt Label
+    | ACompare
+    | ACONST_NULL
+    | Invoke QualifiedClass String TType
+    | InvokeSpecial QualifiedClass String TType
+    | DefaultNew QualifiedClass
+    | GetStatic QualifiedClass FieldName TType
+    | PutField QualifiedClass FieldName TType
+    | GetField QualifiedClass FieldName TType
+    | Branch
+        { pred :: [Instruction]
+        , thenBody :: [Instruction]
+        , elseBody :: [Instruction]
+        }
+    | Loop
+        { pred :: [Instruction]
+        , body :: [Instruction]
+        }
+derive Show Instruction
+
+--alias:
+pushTrue :: Instruction
+pushTrue = Push 0
+pushFalse :: Instruction
+pushFalse = Push 1
+
+data Field
+    = FieldCode
+        { t :: TType
+        , name :: FieldName
+        , code :: [Instruction]
+        }
+derive Show Field
+
+data MethodCode
+    = MethodCode
+        { name :: String
+        , args :: [TType]
+        , vars :: [Int]
+        , returnType :: TType
+        , body :: [Instruction]
+        }
+derive Show MethodCode
+
+data Class
+    = ClassCode
+        { name :: ClassName
+        , extends :: Maybe QualifiedClass
+        , fields :: [Field]
+        , methods :: [MethodCode]
+        }
+derive Show Class
+
+data Main
+    = MainCode
+        { name :: ClassName
+        , body :: [Instruction]
+        , vars :: [Int]
+        }
+derive Show Main
+
+data Prog
+    = ProgramCode ([Class], Main)
+derive Show Prog
+
+flattenInstruction label (Branch p t e)
+    = (p' ++ [IfNe elseLabel] ++ t' ++ [Goto afterLabel, Label elseLabel] ++ e' ++ [Label afterLabel], label3)
+    where
+        elseLabel = "else_" ++ (show label)
+        afterLabel = "after_" ++ (show label)
+        label0 = label+1
+        (p', label1) = flattenInstructions p label0
+        (t', label2) = flattenInstructions t label1
+        (e', label3) = flattenInstructions e label2
+
+flattenInstruction label LT
+    = (If_ICmpLt ltLabel : pushFalse : Goto geqLabel : Label ltLabel : pushTrue : Label geqLabel : [], label+1)
+    where
+        ltLabel = "lt_" ++ (show label)
+        geqLabel = "geq_" ++ (show label)
+
+flattenInstruction label ACompare
+    = (If_ACmpEq eqLabel : pushFalse : Goto neLabel : Label eqLabel : pushTrue : Label neLabel : [], label+1)
+    where
+        eqLabel = "eq_" ++ (show label)
+        neLabel = "ne_" ++ (show label)
+
+flattenInstruction label (Loop pred body)
+    = ((Label while : p') ++ (IfNe break : b') ++ [Goto while,Label break], label2)
+    where
+        while = "while_" ++ show label
+        break = "break_" ++ show label
+        label0 = label+1
+        (p', label1) = flattenInstructions pred label0
+        (b', label2) = flattenInstructions body label1
+
+flattenInstruction label i = ([i], label)
+
+flattenInstructions :: [Instruction] -> Int -> ([Instruction], Int)
+flattenInstructions xs label0 = (concat yss, label'')
+    where
+        (yss, label'') = foldr flattenOne ([[]], label0) xs
+        flattenOne x (yss, label) = let
+            (ys', label') = flattenInstruction label x
+            in (ys' : yss, label')
+
+flattenInstructions_ :: [Instruction] -> [Instruction]
+flattenInstructions_ xs = fst $ flattenInstructions xs 0
+
+traceStack :: [Instruction]
+traceStack = [Duplicate ,GetStatic "java/lang/System" "out" (TClass "java/io/PrintStream"),Swap, Invoke "java/io/PrintStream" "println" (TMethod ([TInt],TUnit))]
+
+prependPos :: Position -> [Instruction] -> [Instruction]
+prependPos pos rest = LineNum pos.line : rest
+
+compileExpression :: Expression -> [Instruction]
+compileExpression (Typed TInt (BinOp e1 op e2 pos)) = prependPos pos $ case (e1.t,e2.t) of
+    (TInt,TInt) -> compileExpression e1 ++ compileExpression e2 ++ case op of
+        Plus -> [LineNum pos.line, IADD]
+        Minus -> [LineNum pos.line, ISUB]
+        Times -> [LineNum pos.line, IMUL]
+        Div -> [LineNum pos.line, IDIV]
+        _ -> error $ show (BinOp e1 op e2 pos)
+
+compileExpression (Typed TBool (BinOp e1 op e2 pos)) = prependPos pos $ case (e1.t,e2.t) of
+    (TInt,TInt) -> case op of
+        Equals -> [Branch (compileExpression e1 ++ compileExpression e2 ++ [IXOR]) [pushTrue] [pushFalse]] --Branch instruction needed to clean the value from XOR.
+        -- LessThan implemented using bit-magic instead of branching-logic.
+        LessThan -> compileExpression e1 ++ compileExpression e2 ++ [LT]
+
+    (TBool,TBool) -> case op of
+        Equals -> compileExpression e1 ++ compileExpression e2 ++ [LineNum pos.line, IXOR]
+        And -> compileExpression (Typed TBool
+            (If e1
+                (If e2
+                    (Typed TBool (LitTrue pos))
+                    (Just (Typed TBool (LitFalse pos)))
+                    pos)
+                (Just (Typed TBool (LitFalse pos)))
+                pos))
+        Or -> compileExpression (Typed TBool
+            (If e1
+                (Typed TBool (LitTrue pos))
+                (Just (Typed TBool (If e2
+                    (Typed TBool (LitTrue pos))
+                    (Just (Typed TBool (LitFalse pos)))
+                    pos)))
+            pos))
+    (t1,t2) -> case op of
+        Equals -> compileExpression e1 ++ compileExpression e2 ++ [ACompare]
+
+compileExpression (Typed TString (BinOp e1 Plus e2 pos)) = prependPos pos $
+    DefaultNew sb :
+        (concatMap (\e -> compileExpression e ++ [Invoke sb "append" (TMethod ([e.t], TClass sb))]) exprs)
+        ++ [Invoke sb "toString" (TMethod ([], TString))]
+    where
+        sb = "java/lang/StringBuilder"
+        addexprs (Typed TString (BinOp e3 Plus e4 _)) = addexprs e3 ++ addexprs e4
+        addexprs e3 = [e3]
+        exprs = addexprs e1 ++ addexprs e2
+
+compileExpression (Typed TBool (Not expr pos)) = compileExpression expr ++ [Push 1, IXOR]
+compileExpression (Block [] pos) = []
+compileExpression (Block xs pos) = prependPos pos $ cleanStack xs
+
+compileExpression (While pred body pos) = prependPos pos $ [Loop (compileExpression pred) (compileExpression body)]
+
+compileExpression (Assign var expr pos) = case var of
+    (Symbol _ (FieldSymbol c) t identifier) -> ALoad 0 : compileExpression expr ++ [PutField c (nameOf identifier) t]
+    (Symbol _ (LocalSymbol LocalVar i) t identifier) -> compileExpression expr ++ [store t i]
+        where
+            store TInt = IStore
+            store TBool = IStore
+            store _ = AStore
+    _ -> error $ show (Assign var expr pos) ++ "has no pattern."
+
+compileExpression (Println (Typed TBool expr) pos)
+    = [LineNum pos.line, GetStatic "java/lang/System" "out" (TClass "java/io/PrintStream")]
+        ++ compileExpression (Typed TBool expr)
+        ++ [Push 1, IXOR]
+        ++ [Invoke "java/io/PrintStream" "println" (TMethod ([TBool],TUnit))]
+compileExpression (Println (Typed t expr) pos)
+    = [LineNum pos.line, GetStatic "java/lang/System" "out" (TClass "java/io/PrintStream")]
+        ++ compileExpression (Typed t expr)
+        ++ [Invoke "java/io/PrintStream" "println" (TMethod ([t],TUnit))]
+compileExpression (MethodCall (Typed (TClass classType) c) (Symbol _ _ mtype method) args pos)
+    = LineNum pos.line : compileExpression c ++ concatMap compileExpression args ++ [Invoke classType (nameOf method) mtype]
+compileExpression (New (Symbol _ _ (TClass classType) obj) pos)
+    = [LineNum pos.line, DefaultNew classType]
+compileExpression (LitInt i pos) = [LineNum pos.line, Push i]
+compileExpression (LitString s pos) = [LineNum pos.line, PushStr s]
+compileExpression (LitFalse pos) = [LineNum pos.line, pushFalse]
+compileExpression (LitTrue pos) = [LineNum pos.line, pushTrue]
+compileExpression (Identifier (Symbol symid (FieldSymbol c) t name) pos) = [LineNum pos.line,ALoad 0, GetField c (nameOf name) t]
+compileExpression (Identifier (Symbol symid (LocalSymbol _ i) t name) pos) = [LineNum pos.line, load t i]
+    where
+        load TInt = ILoad
+        load TBool = ILoad
+        load _ = ALoad
+
+compileExpression (LitNull pos) = [LineNum pos.line, ACONST_NULL]
+compileExpression (LitThis pos) = [ALoad 0]
+
+compileExpression (If p t e pos)
+    = [LineNum pos.line, Branch (compileExpression p) (compileExpression t) (maybe [] compileExpression e)]
+compileExpression (Typed _ expr)
+    = compileExpression expr
+compileExpression e = error $ "No pattern for Expression" ++ show e
+
+cleanStack :: [Expression] -> [Instruction]
+cleanStack xs = concatMap oneExpr (init xs) ++ compileExpression (last xs)
+    where
+        oneExpr (Typed TUnit x) = compileExpression x
+        oneExpr (Typed _ x) = compileExpression x ++ [Pop]
+
+compileFieldInit :: ClassName -> Field -> [Instruction]
+compileFieldInit c (FieldCode{t,name,code}) = ALoad 0 : code ++ [PutField c name t]
+
+compileField :: VarDeclaration -> Field
+compileField (Var{name, varType, expr})
+    = FieldCode
+        { name = nameOf name
+        , t = ttype varType
+        , code = compileExpression expr
+        }
+
+
+compileVar :: VarDeclaration -> [Instruction]
+compileVar (Var{name = Symbol _ (LocalSymbol _ i) t n, expr})
+    = compileExpression expr ++ [store t i]
+    where
+        store TInt = IStore
+        store TBool = IStore
+        store _ = AStore
+
+-- compileArg :: (Identifier, Type) -> [Instruction]
+-- compileArg (Symbol _ (LocalSymbol Param i) TInt name, _) = IStore i
+-- compileArg (Symbol _ (LocalSymbol Param i) TBool name, _) = IStore i
+-- compileArg (Symbol _ (LocalSymbol Param i) TBool name, _) = IStore i
+
+compileMethod :: MethodDeclaration -> MethodCode
+compileMethod (MethodDeclaration{name,args,vars,exprs})
+    = MethodCode (nameOf name) argTypes vs ret
+        (declareVars ++ (flattenInstructions_ $ compileExpression body) ++ [return ret])
+    where
+        (Symbol i s (TMethod (argTypes,ret)) p) = name
+        vs = fmap (const 1) vars
+        declareVars = concatMap compileVar vars
+        return TInt = IReturn
+        return TBool = IReturn
+        return TUnit = Return
+        return _ = AReturn
+        body = (Block exprs (position name))
+
+compileMain :: MainDeclaration -> Main
+compileMain (Main{name, vars, body})
+    = MainCode (nameOf name) (declareVars ++ (flattenInstructions_ $ compileExpression body') ++ pop ++ [Return]) vs
+    where
+        declareVars = concatMap compileVar vars
+        vs = (fmap (const 1) vars)
+        body' = (Block body (position name))
+        pop = case (last body) of
+            (Typed TUnit _) -> []
+            (Typed _ _) -> [Pop]
+
+compileClass :: ClassDeclaration -> Class
+compileClass (Class{name,extends,vars,methods})
+    = ClassCode
+        { name = nameOf name
+        , extends = fmap nameOf extends
+        , fields = fmap compileField vars
+        , methods = fmap compileMethod methods
+        }
+
+compileProgram (Program classes main _)
+    = ProgramCode (fmap compileClass classes, compileMain main)
+

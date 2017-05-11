@@ -1,0 +1,8 @@
+
+class A {
+    def foo(bar : Int, bar : Bool) : Int = {bar}
+}
+
+object Main extends App {
+    println("Hi")
+}

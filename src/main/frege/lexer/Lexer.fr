@@ -1,16 +1,12 @@
 module lexer.Lexer where
 import frege.prelude.PreludeBase (StringJ)
+import punkt0.ScalaShow
 import Data.Monoid
 import Data.Iterators(StringIterator)
 import Control.Second(second)
 import Data.List(find)
 import Data.Char(isAlpha,isAlphaNum,isUpper,isDigit,isLower,isSpace)
 import punkt0.Positioned(Position, Positioned)
-
-
-
-instance Show Position where
-    show Pos{line,col} = "("++ show line ++ ":" ++ show col ++")"
 
 abstract data FileIterator = FI {!buffer:: String, !length, !at, !line, !col :: Int} where
     null FI{at, length} = at >= length
@@ -153,10 +149,10 @@ instance Positioned (Lexeme a) where
     position (Ok _ pos) = pos
     position (EOF pos) = pos
 
-instance Show a => Show (Lexeme a) where
-    show (Bad pos) = "BAD" ++ show pos
-    show (Ok token pos) = show token ++ show pos
-    show (EOF pos) = "EOF" ++ show pos
+instance Show a => ScalaShow (Lexeme a) where
+    scalashow (Bad pos) = "BAD" ++ scalashow pos
+    scalashow (Ok token pos) = show token ++ scalashow pos
+    scalashow (EOF pos) = "EOF" ++ scalashow pos
 
 checkError :: (FileIterator, FileIterator) -> [Lexeme token] -> [Lexeme token]
 checkError (!errPos, !pos) tokens

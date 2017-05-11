@@ -1,0 +1,104 @@
+module punkt0.analyzer.Types where
+import punkt0.parser.Grammar
+import punkt0.Typed
+import punkt0.Positioned
+import punkt0.ScalaShow
+import punkt0.Errors
+import Data.HashMap
+import punkt0.Reporter
+
+-- | Simulate HashSet using a HashMap with values as unit ()
+type HashSet a = HashMap a ()
+type Extends a = HashMap a a
+type Inheritance a = HashMap a [a]
+
+add :: Eq a => a -> HashSet a -> HashSet a
+add x = insert x ()
+
+type Name = String
+type ClassName = String
+type VarName = String
+type MethodName = String
+type Interface = (HashMap VarName VarDeclaration, HashMap MethodName MethodDeclaration, HashMap String Identifier)
+type Interfaces = HashMap ClassName Interface
+
+data TypeError
+    = UnificationError TType TType Position
+    | InvalidOperands BinOp TType TType Position
+    | NotAnObject Position
+    | CallOnNonMethod TType Position
+    | CannotDeduceType Expression
+    | CannotConstruct TType Position
+    | MustExtendApp Position
+    | UnbalancedIf Position
+derive Show TypeError
+derive Eq TypeError
+
+data AnalyzeError
+    = NoSuchClass ClassName Position
+    | NoSuchMethod ClassName MethodName Position
+    | NotDeclared Name Position
+    | CyclicDependencies ClassName Position
+    | OverloadedField ClassName VarName Position
+    | Override ClassName VarName Position
+    | DuplicateDeclaration [Identifier]
+    | InvalidThis Position
+    | Shadow Identifier Identifier
+    | NonConstantDeclaration Position
+    | ParamAssign String Position
+    | TypeError TypeError
+derive Show AnalyzeError
+derive Eq AnalyzeError
+
+showAnalyzeError :: String -> AnalyzeError -> String
+showAnalyzeError input (NoSuchClass c p)
+    = showErrorAt (lines input) ("No such class: " ++ c) p
+showAnalyzeError input (NoSuchMethod c m p)
+    = showErrorAt (lines input) ("No such method: " ++ m ++ " in class "++ c) p
+showAnalyzeError input (CyclicDependencies c p)
+    = showErrorAt (lines input) ("The class " ++ c ++ " has cyclic dependencies") p
+showAnalyzeError input (OverloadedField c v p)
+    = showErrorAt (lines input) ("Illegal overload of member " ++ v ++ " in class " ++ c) p
+showAnalyzeError input (Override c v p)
+    = showErrorAt (lines input) ("Override of method "++ v ++ " missing in super classes for class " ++ c) p
+showAnalyzeError input (DuplicateDeclaration ids)
+    = unlines $ "Error: Duplicate declarations" : concatMap (\i -> ("At " ++ scalashow (position i)) : showCursorAt (lines input) (position i)) ids
+showAnalyzeError input (NotDeclared var pos)
+    = showErrorAt (lines input) ("Not declared: " ++ var) pos
+showAnalyzeError input (TypeError (UnificationError t1 t2 pos))
+    = showErrorAt (lines input) ("Cannot unify type " ++ show t1 ++ " with type " ++ show t2) pos
+showAnalyzeError input (TypeError (NotAnObject pos))
+    = showErrorAt (lines input) ("Cannot call method without object") pos
+showAnalyzeError input (TypeError (InvalidOperands op t1 t2 pos))
+    = showErrorAt (lines input) ("Cannot perform operation " ++ show (op, t1, t2)) pos
+showAnalyzeError input (TypeError (MustExtendApp pos))
+    = showErrorAt (lines input) ("The object must extend App") pos
+showAnalyzeError input (TypeError (CallOnNonMethod t pos))
+    = showErrorAt (lines input) ("The type " ++ show t ++ " is not callable") pos
+showAnalyzeError input (TypeError (CannotDeduceType e))
+    = showErrorAt (lines input) ("Cannot deduce type ") (position e)
+showAnalyzeError input (TypeError (CannotConstruct t pos))
+    = showErrorAt (lines input) ("Cannot construct objects with type " ++ show t) pos
+showAnalyzeError input (Shadow before new)
+    = unlines $ ["Error: Shadow of previously declared variable"
+      , "the variable: " ++ (scalashow $ position new)
+      ]
+      ++ showCursorAt (lines input) (position new)
+      ++ ["was previously defined here: " ++ (scalashow $ position before)]
+      ++ showCursorAt (lines input) (position before)
+showAnalyzeError input (TypeError (UnbalancedIf pos))
+    = showErrorAt (lines input) "If without else body must be of type Unit." pos
+
+showAnalyzeError input (TypeError err)
+    = show err
+showAnalyzeError input (NonConstantDeclaration p)
+    = showErrorAt (lines input) ("Expression in variable declaration must be constant.") p
+showAnalyzeError input (ParamAssign v p)
+    = showErrorAt (lines input) ("'" ++ v ++ "' is a method parameter and cannot be reassigned.") p
+showAnalyzeError input (InvalidThis p)
+    = showErrorAt (lines input) ("Invalid this...") p
+
+
+
+type Analyze a = Accumulate [AnalyzeError] a
+

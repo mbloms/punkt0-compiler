@@ -1,0 +1,14 @@
+
+class A {
+    var x : Int = 3;
+    var y : Int = 4;
+
+    def foo(z : Int) : Int = {
+        new A()
+    }
+}
+
+object Main extends App {
+    new A().foo()
+}
+

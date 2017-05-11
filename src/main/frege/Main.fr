@@ -2,7 +2,7 @@ module punkt0.Main where
 import Java.IO(stderr)
 import lexer.Lexer (scanTokens, FileIterator, Lexeme(Bad))
 import punkt0.lexer.Tokens (identifier, token, Token())
-import punkt0.parser.Grammar (program, expression, simpleexpression, Program, scalashow)
+import punkt0.parser.Grammar (program, expression, simpleexpression, Program)
 import frege.control.monad.trans.MonadIO
 import punkt0.Context
 import punkt0.Phase
@@ -10,6 +10,10 @@ import punkt0.Reporter
 import Data.Traversable(traverse)
 import punkt0.parser.Pretty (prettyPrint)
 import punkt0.Positioned
+import punkt0.ScalaShow
+import punkt0.analyzer.Analyzer
+import punkt0.codegen.CodeGen(compile)
+import punkt0.Errors
 
 tokens :: String -> [Lexeme Token]
 tokens = (scanTokens token) . FileIterator.from
@@ -17,49 +21,39 @@ tokens = (scanTokens token) . FileIterator.from
 isBad (Bad _) = true
 isBad _ = false
 
-showErrorAt :: [String] -> Position -> String
-showErrorAt contentLines pos = unlines
-    [ "Error, invalid token at " ++ show pos ++ ":"
-    , contentLines !! (pos.line - 1)
-    , packed $ replicate (pos.col - 1) ' ' ++ ['^']
-    ]
-
-tokenPhase :: Maybe String -> Phase [Lexeme Token]
+tokenPhase :: Maybe String -> Phase (String, [Lexeme Token])
 tokenPhase file =
     phase $ fmap tokenize (input file)
     where
-        tokenize :: String -> Accumulate [String] [Lexeme Token]
+        tokenize :: String -> Accumulate [String] (String, [Lexeme Token])
         tokenize str =
             let
-                contentLines = lines str
                 tokens = (scanTokens token) . FileIterator.from $ str
                 bads = filter isBad tokens
-                errors = map (showErrorAt contentLines . _.position) bads
-                reportErrors = traverse report1 errors
-            in reportErrors *> pure tokens
+                errors = fmap (\bad -> ("invalid token at", bad)) bads
+            in reportErrors str errors *> pure (str, tokens)
         input :: Maybe String -> IO String
         input file = case file of
             Nothing -> getContents
             (Just name) -> readFile name
 
-parsePhase :: [Lexeme Token] -> Phase Program
-parsePhase tokens =
-    let result = program.run $ tokens
-    in phase $ pure $ case result of
-        [] = report1 "No possible parse"
-        [([],p)] = pure p
-        [(t:_, _)] = report1 $ "unexpected" ++ show t
-        _ = report1 "Ambiguous parse"
+parsePhase :: (String, [Lexeme Token]) -> Phase (String, Program)
+parsePhase (input, tokens) =
+    let result = program.run tokens
+    in phase $ pure $
+        case result of
+            Left err = reportMany err
+            Right ([],p) = pure (input, p)
+            Right ((t:_), _) = report1 $ "unexpected" ++ scalashow t
 
 displayHelp :: IO ()
-displayHelp = print "Well. Don't ask me."
-
+displayHelp = println "Well. Don't ask me."
 
 crashAndBurn :: [String] -> IO ()
 crashAndBurn errors = mapM_ (stderr.println) errors >> System.exit 1
 
 runIO :: (a -> IO ()) -> ([String] | a) -> IO ()
-runIO ok result = either crashAndBurn ok result
+runIO ok result = either crashAndBurn ok result >> System.exit 0
 
 main :: [String] -> IO ()
 main args
@@ -68,8 +62,14 @@ main args
             context = parseFlags args defaultContext
             tokens = tokenPhase context.file
             parseTree = tokens >>= parsePhase
+            withSymbols = parseTree >>= analysisPhase
             phases = do
-                when context.tokens ((runPhase tokens) >>= (runIO $ mapM_ println))
-                when context.ast ((runPhase parseTree) >>= (runIO $ println . scalashow))
-                when context.pretty ((runPhase parseTree) >>= (runIO $ println . prettyPrint))
+                when context.help $ displayHelp >> System.exit 0
+                when context.tokens $ runPhase tokens >>= runIO (mapM_ (println . scalashow) . snd)
+                when context.ast $ runPhase parseTree >>= runIO (println . scalashow . snd)
+                when (context.pretty && not context.symbolIds) $ runPhase parseTree >>= runIO (println . prettyPrint . snd)
+                when (context.symbolIds) $ runPhase withSymbols >>= runIO (println . prettyPrint . snd)
+                when context.showTypeChecked $ runPhase withSymbols >>= runIO (println . show . snd)
+                runPhase withSymbols >>= runIO (\(_, program) -> compile context.outDir context.file program)
         in phases
+

@@ -1,0 +1,134 @@
+module punkt0.codegen.CodeGen where
+import punkt0.codegen.Scala
+import punkt0.codegen.Instruction
+import punkt0.parser.Grammar
+import punkt0.analyzer.Analyzer
+import punkt0.Typed
+import Java.Util(LinkedList, List)
+import Data.Traversable(traverse)
+
+genCode :: CodeHandler -> [Instruction] -> IO CodeHandler
+genCode startHandler is = foldM f startHandler is
+    where
+        f handler i
+            = case getScalaI i of
+                Gen g -> handler.append g
+                Code c -> handler.append c
+
+genMethod :: ClassName -> ClassFile -> MethodCode -> IO ClassFile
+genMethod className cf (MethodCode{name,args,returnType,vars,body})
+    = ScalaList.fromList argTypes >>= \types ->
+    cf.addMethod (javaType returnType) name types >>= \methodHandler ->
+    methodHandler.codeHandler >>= \codeHandler ->
+    -- `cafebabe` requires us to generate vars here since the field
+    -- locals is private in class CodeHandler as is max_locals CodeAttributes
+    traverse (const codeHandler.getFreshVar) args >>= \_ -> -- generate var for each argument
+    traverse (const codeHandler.getFreshVar) vars >>= \_ -> -- generate var for declared var
+    genCode codeHandler body >>= \_ ->
+    codeHandler.freeze >>= \_ ->
+    pure cf
+    where
+        argTypes = fmap javaType args
+
+declareField :: ClassName -> ClassFile -> Field -> IO ClassFile
+declareField className cf (FieldCode{name,t})
+    = cf.addField (javaType t) name >> pure cf
+
+genClass :: Maybe String -> Maybe String -> Class -> IO ()
+genClass outDir sourceFile (ClassCode{name,extends,fields,methods})
+    = ClassFile.new name (toOption extends) >>= \cf ->
+    foldM (declareField name) cf fields >>= \cf ->
+    foldM (genMethod name) cf methods >>= \cf ->
+    maybe (pure ()) cf.setSourceFile sourceFile >>= \_ ->
+    cf.addConstructor (ScalaNil.nil) >>= \mm ->
+    mm.codeHandler >>= \code ->
+    genCode code constructor >>= \_ ->
+    code.freeze >>= \_ ->
+    cf.writeToFile (dirName ++ name ++ ".class")
+    where
+        dirName = maybe "" (\dir -> dir ++ "/") outDir
+        super = fromMaybe "java/lang/Object" extends
+        thisPtr = ALoad 0
+        construct = InvokeSpecial super "<init>" (TMethod ([],TUnit))
+        constructor = thisPtr : construct : concatMap (compileFieldInit name) fields ++ [Return]
+
+genProgram :: Maybe String -> Maybe String -> Prog -> IO ()
+genProgram outDir sourceFile (ProgramCode (classes, MainCode{name,body,vars}))
+    = createDirectory
+    >> traverse (genClass outDir sourceFile) classes
+    >>= \_ -> ClassFile.new name (toOption Nothing)
+    >>= \cf -> maybe (pure ()) cf.setSourceFile sourceFile
+    >>= \_ -> cf.addDefaultConstructor
+    >>= \_ -> cf.addMainMethod
+    >>= \mm -> mm.codeHandler
+    >>= \code -> genCode code body
+    >>= \_ -> traverse (const code.getFreshVar) vars
+    >>= \_ -> code.freeze
+    >>= \_ -> cf.writeToFile (dirName ++ name ++ ".class")
+    where
+        createDirectory = maybe (pure True) (\dir -> File.new dir >>= \f -> f.mkdirs) outDir
+        dirName = maybe "" (\dir -> dir ++ "/") outDir
+
+--testCode = "class A{var x : Int = 3; def foo() : Unit = {println(\"Hello there ☺️\"); println(x)}} object Main extends App {new A().foo()}"
+{-
+testCode = unlines
+    [ "class A{"
+    , "  var x : Int = 3;"
+    , "  def foo() : Unit = {"
+    , "    var y : Int = 42;"
+    , "    var o : A = new A();"
+    , "    if ((true && (2==2) && (1<2) || 1/0 == 1))"
+    , "      {println(x);println(\"block\")}"
+    , "    else"
+    , "      println(5)"
+    , "    ;"
+    , "    println(\"Here\")"
+    , "  }"
+    , "}"
+    , "object Main extends App {"
+    , "  var z : Int = 42;"
+    , "  if (true)"
+    , "    new A().foo()"
+    , "  ;"
+    , "  println(z)"
+    , "}"
+    ]-}
+{-
+testCode = unlines
+    [ "class A{"
+    , "  var x : Int = 3;"
+    , "  def foo() : Unit = {"
+    , "    var y : Int = 42;"
+    , "    var o : A = new A();"
+    , "    println(1==2);"
+    , "    println(1<3);"
+    , "    println(2==2);"
+    , "    println(4<2)"
+    , "  }"
+    , "}"
+    , "object Main extends App {"
+    , "  var z : Int = 42;"
+    , "  if (true)"
+    , "    new A().foo()"
+    , "  ;"
+    , "  println(z)"
+    , "}"
+    ]
+-}
+-- testCode = "object Main extends App { println(\"Hello, Dear World!\")}"
+--testCode = "object Main extends App {println(1+3/2*4)}"
+testCode = "object Main extends App {println(\"Hello\" + 4 + \"ok\" + \"hi\" + 12372 * 4)}"
+main = let
+        (Just ast) = parseCode program testCode
+        -- Left errors = analyzer ast
+        ast' = case analyzer ast of
+            (Right a) -> a
+            (Left err) -> error $ show err
+        instructions = compileProgram ast'
+    in println ast'
+    >> println instructions
+    >> genProgram Nothing (Just "heheehe.p0") instructions
+
+compile :: Maybe String -> Maybe String -> Program -> IO ()
+compile outDir sourceFile program = genProgram outDir sourceFile (compileProgram program)
+

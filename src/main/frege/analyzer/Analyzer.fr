@@ -1,0 +1,31 @@
+module punkt0.analyzer.Analyzer where
+import punkt0.Reporter
+import punkt0.parser.Grammar
+import punkt0.Phase
+import punkt0.ScalaShow
+import punkt0.Typed
+import punkt0.analyzer.Inheritance
+import punkt0.analyzer.Symbols
+import punkt0.analyzer.Names
+import punkt0.analyzer.Types
+import punkt0.analyzer.TypeCheck
+
+analyzer program
+    = toEither (checkDependencies program)
+    >>= \inheritance -> toEither (analyzeNames (createSymbols program))
+    >>= \(interfaces, program') -> toEither (typecheck (inheritance, interfaces, Nothing) program')
+    -- >>= \(interfaces, program') -> pure program'
+    -- >>= \env -> toEither ())
+    -- >>= \interfaces -> toEither (typecheck (env.{interfaces=interfaces}) program')
+
+runAnalyzer = fmap analyzer . (parseCode program)
+
+analysisPhase :: (String, Program) -> Phase (String, Program)
+analysisPhase (input, program)
+    = phase $ case analyzer program of
+        Right a -> pure $ ARight (input, a)
+        Left errors -> pure $ ALeft (fmap (showAnalyzeError input) errors)
+
+main :: [String] -> IO ()
+main [] = getContents >>= print . runAnalyzer
+main (file:_) = readFile file >>= print . runAnalyzer

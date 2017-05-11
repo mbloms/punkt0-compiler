@@ -1,0 +1,260 @@
+module punkt0.analyzer.TypeCheck where
+import Data.HashMap
+import Data.Traversable(traverse)
+import punkt0.Positioned
+import punkt0.Typed
+import punkt0.parser.Grammar
+import punkt0.Reporter
+import punkt0.analyzer.Types
+import Data.List(find)
+
+type Supers = HashMap String [String]
+type Environment = (Supers, Interfaces, Maybe ClassName)
+
+equalType :: Position -> TType -> TType -> Analyze ()
+equalType pos t1 t2
+    = if t1 /= t2
+        then report1 $ TypeError $ UnificationError t1 t2 pos
+        else pure ()
+
+-- t1 <: t2
+-- t1 is a subtype of t2
+unify :: Environment -> Position -> TType -> TType -> Analyze TType
+unify _ pos TUnit TUnit = pure TUnit
+unify _ pos TInt TInt = pure TInt
+unify _ pos TBool TBool = pure TBool
+unify _ pos TString TString = pure TString
+unify (supers, interfaces, className) pos (TClass c) (TClass d)
+    | c == d = pure (TClass c)
+    | otherwise = if d `elem` unJust (lookup c supers)
+        then pure (TClass c)
+        else report1 (TypeError $ UnificationError (TClass c) (TClass d) pos)
+unify _ pos (TClass c) TAnyRef = pure (TClass c)
+unify _ pos TBottomRef (TClass c) = pure (TClass c)
+unify _ pos t1 t2 = report1 (TypeError $ UnificationError t1 t2 pos)
+
+leastCommonClass xs ys
+    = maybe (pure TAnyRef) (\(c,d) -> pure $ TClass c) common
+    where
+        zs = reverse (zip (reverse xs) (reverse ys))
+        common = find (\(c,d) -> c == d) zs
+
+-- Get the type that is the most specific
+-- common type between the two types
+-- This is the same as a least upper bound on the
+-- subtyping relation <:
+leastCommonType (supers, interfaces, className) pos (TClass c) (TClass d)
+    | c == d = pure (TClass c)
+    | otherwise = leastCommonClass (c : (unJust $ lookup c supers)) (d : (unJust $ lookup d supers))
+leastCommonType env pos (TClass c) TAnyRef = pure (TClass c)
+leastCommonType env pos TAnyRef (TClass c) = pure (TClass c)
+-- Unless the types are classes this is the same as normal unification
+leastCommonType env pos t1 t2
+    = unify env pos t1 t2
+
+-- Unify type when applying arguments to method call
+applyUnify :: Environment -> Position -> TType -> [TType] -> Analyze TType
+applyUnify env pos (TMethod (tparams, treturn)) targs
+    | length tparams == length targs = traverse (\(p,a) -> unify env pos a p) (zip tparams targs) *> pure treturn
+    | otherwise = report1 $ TypeError $ UnificationError (TMethod (tparams, treturn)) (TMethod (targs, treturn)) pos
+applyUnify env pos t _ = report1 $ TypeError $ CallOnNonMethod t pos
+
+lookupType :: Environment -> Identifier -> TType
+lookupType env (Symbol _ _ t _) = t
+lookupType env (i@ID _ _) = error $ "Internal error: All identifier must be symbols in typechecker" ++ show i
+
+exprType :: Environment -> Expression -> Analyze TType
+exprType env (Typed t _) = pure t
+exprType env (LitInt _ _) = pure TInt
+exprType env (LitString _ _) = pure TString
+exprType env (LitTrue _) = pure TBool
+exprType env (LitFalse _) = pure TBool
+exprType env (LitNull _) = pure TBottomRef
+exprType env (Identifier identifier pos) = pure $ lookupType env identifier
+exprType env (New identifier pos) = pure $ lookupType env identifier
+exprType env expr = report1 $ TypeError $ CannotDeduceType expr
+
+methodType :: Environment -> Identifier -> Expression -> Analyze (TType,String)
+methodType (supers, interfaces, className) name (Typed (TClass c) expr)
+    = maybe (report1 $ NoSuchMethod c methodName (position name)) pure methodType
+    where
+        methodName = nameOf name
+        iface = lookup c interfaces
+        method = iface >>= \(_, methods, _) -> lookup methodName methods
+        methodType = fmap (\t -> (typeOf t, c)) method
+methodType env name expr = report1 $ TypeError $ NotAnObject (position expr)
+
+binOpType :: Position -> BinOp -> TType -> TType -> Analyze TType
+binOpType _ Plus TInt TInt = pure TInt
+binOpType _ Plus TString TInt = pure TString
+binOpType _ Plus TInt TString = pure TString
+binOpType _ Plus TString TString = pure TString
+binOpType _ Minus TInt TInt = pure TInt
+binOpType _ Times TInt TInt = pure TInt
+binOpType _ Div TInt TInt = pure TInt
+binOpType pos Equals a b = if a == b || (obj a && obj b)
+    then
+        pure TBool
+    else
+        report1 $ TypeError $ InvalidOperands Equals a b pos
+    where
+        obj (TClass _) = true
+        obj TAnyRef = true
+        obj TBottomRef = true
+        obj _ = false
+binOpType _ LessThan TInt TInt = pure TBool
+binOpType _ And TBool TBool = pure TBool
+binOpType _ Or TBool TBool = pure TBool
+binOpType pos op t1 t2 = report1 $ TypeError $ InvalidOperands op t1 t2 pos
+
+getType :: Expression -> TType
+getType (Typed t _) = t
+getType _ = error "Internal error: all expressions should have type when calling getType"
+
+--assertUnit :: Expression -> Analyze ()
+--assertUnit e = case getType e of
+--    TUnit -> pure ()
+--    _ -> report1 (TypeError (UnbalancedIf (position e)))
+
+typecheckExpression :: Environment -> Expression -> Analyze Expression
+typecheckExpression env (e@Typed _ _) = pure e
+typecheckExpression env (e@LitInt _ _) = fmap Typed (exprType env e) <*> pure e
+typecheckExpression env (e@LitString _ _) = fmap Typed (exprType env e) <*> pure e
+typecheckExpression env (e@LitTrue _) = fmap Typed (exprType env e) <*> pure e
+typecheckExpression env (e@LitFalse _) = fmap Typed (exprType env e) <*> pure e
+typecheckExpression env (e@LitNull _) = fmap Typed (exprType env e) <*> pure e
+typecheckExpression env (e@Not expr pos)
+    = toAccumulate check
+    where
+        check = toEither (typecheckExpression env expr)
+            >>= \expr' -> toEither (unify env pos (getType expr') TBool)
+            >>= \_ -> pure $ Typed TBool (Not expr' pos)
+typecheckExpression env (identifier@Identifier id pos) = pure $ Typed (lookupType env id) identifier
+typecheckExpression (_, interfaces, _) (new@New obj pos)
+    = maybe
+        (report1 $ TypeError $ NotAnObject pos)
+        (const . pure $ Typed (TClass className) new)
+        (lookup className interfaces)
+    where
+        className = nameOf obj
+typecheckExpression (_,_,className) (e@LitThis pos)
+    = maybe
+        (report1 $ InvalidThis pos)
+        (\n -> pure $ Typed (TClass n) e)
+        className
+typecheckExpression env (BinOp lhs op rhs pos)
+    = toAccumulate check
+    where
+        check = toEither (fmap (,) (typecheckExpression env lhs) <*> (typecheckExpression env rhs))
+            >>= \(lhs', rhs') -> toEither (fmap (,) (exprType env lhs') <*> (exprType env rhs'))
+            >>= \(t1, t2) -> toEither (fmap Typed (binOpType pos op t1 t2) <*> pure (BinOp lhs' op rhs' pos))
+typecheckExpression env (MethodCall expr name args pos)
+    = toAccumulate check
+    where
+        check = toEither (fmap (,) (typecheckExpression env expr) <*> (traverse (typecheckExpression env) args))
+            >>= \(expr', args') -> toEither (fmap (,) (methodType env name expr') <*> (traverse (exprType env) args'))
+            >>= \((t,className), ts) -> toEither (applyUnify env pos t ts)
+            >>= \_ -> pure (Typed (returnType t) $ MethodCall expr' (Symbol (-1) (MethodSymbol className) t name) args' pos)
+        returnType (TMethod (_, ret)) = ret
+        returnType _ = error "Internal error: type should be method type"
+-- Empty blocks have type TUnit
+typecheckExpression env (Block [] pos)
+    = pure $ Typed TUnit (Block [] pos)
+typecheckExpression env (Block exprs pos)
+    = toAccumulate check
+    where
+        check = toEither (traverse (typecheckExpression env) exprs)
+            >>= \es -> toEither $ fmap Typed (exprType env $ last es) <*> pure (Block es pos)
+--typecheckExpression env (If predicate body Nothing pos)
+--    = toAccumulate check
+--    where
+--        check = toEither (typecheckExpression env predicate)
+--            >>= \predicate' -> toEither (unify env pos (getType predicate') TBool)
+--            >>= \_ -> toEither (typecheckExpression env body)
+--            >>= \body' -> assertUnit body'
+--            *>  pure $ Typed TUnit (If predicate' body' Nothing pos)
+
+typecheckExpression env (If predicate body Nothing pos)
+    = typecheckExpression env (If predicate body (Just (Block [] (pos))) pos)
+
+typecheckExpression env (If predicate body (Just elseBody) pos)
+    = toAccumulate check
+    where check = toEither (typecheckExpression env predicate)
+            >>= \predicate' -> toEither (unify env pos (getType predicate') TBool)
+            >>= \_ -> toEither (fmap (,) (typecheckExpression env body) <*> (typecheckExpression env elseBody))
+            >>= \(body',elseBody') -> toEither (leastCommonType env pos (getType body') (getType elseBody'))
+            >>= \t3 -> pure $ Typed t3 (If predicate' body' (Just elseBody') pos)
+typecheckExpression env (While predicate body pos)
+    = toAccumulate check
+    where check = toEither (typecheckExpression env predicate)
+            >>= \predicate' -> toEither (unify env pos (getType predicate') TBool)
+            >>= \_ -> toEither (typecheckExpression env body)
+            >>= \body' -> toEither (unify env pos (getType body') TUnit)
+            >>= \_ -> pure (Typed TUnit (While predicate' body' pos))
+typecheckExpression env (assign@Assign{var,expr,pos})
+    = analyzeAssign var pos *> toAccumulate check
+    where
+        (Symbol i s varType name) = var
+        check = toEither (typecheckExpression env expr)
+            >>= \expr' -> toEither (unify env pos (getType expr') varType)
+            >>= \_ -> pure (Typed TUnit (assign.{expr=expr'}))
+typecheckExpression env (println@Println{expr,pos})
+    = toAccumulate check
+    where check = toEither (typecheckExpression env expr)
+            >>= \expr' -> toEither (unify env pos (getType expr') TInt
+                                <|> unify env pos (getType expr') TBool
+                                <|> unify env pos (getType expr') TString)
+            >>= \_ -> pure (Typed TUnit (println.{expr=expr'}))
+
+analyzeAssign :: Identifier -> Position -> Analyze ()
+analyzeAssign (Symbol _ (LocalSymbol Param _) _ i) pos = report1 (ParamAssign (nameOf i) pos)
+analyzeAssign (i@ID _ _) pos = error $ "Internal error: No symbol assigned." ++ show i ++ show pos
+analyzeAssign _ _ = pure ()
+
+typecheckMethod :: Environment -> MethodDeclaration -> Analyze MethodDeclaration
+typecheckMethod env (MethodDeclaration override name args returnType vars exprs pos)
+    = toAccumulate check
+    where
+        check = toEither (typecheckExpression env (Block exprs pos))
+            >>= \(Typed t (Block exprs' _)) -> toEither (unify env pos t (ttype returnType))
+            >>= \_ -> toEither (traverse (typecheckVar env) vars)
+            >>= \vars' -> pure (MethodDeclaration override name args returnType vars' exprs' pos)
+
+typecheckVar :: Environment -> VarDeclaration -> Analyze VarDeclaration
+typecheckVar env (Var name varType expr pos)
+    = toAccumulate check
+    where
+        check = toEither (typecheckExpression env expr)
+            >>= \expr' -> toEither (exprType env expr')
+            >>= \t -> toEither (unify env pos t (ttype varType))
+            >>= \_ -> pure (Var name varType expr' pos)
+
+typecheckClass :: Environment -> ClassDeclaration -> Analyze ClassDeclaration
+typecheckClass (supers, interfaces, className) (Class name extends vars methods pos)
+    = fmap (Class name extends)
+        (traverse (typecheckVar env') vars)
+        <*> (traverse (typecheckMethod env') methods)
+        <*> pure pos
+    where
+        env' = (supers, interfaces, Just (nameOf name))
+
+typecheckMain :: Environment -> MainDeclaration -> Analyze MainDeclaration
+typecheckMain env (Main name extends vars body pos)
+    = checkExtends
+    *> fmap (Main name extends)
+        (traverse (typecheckVar env) vars)
+        <*> (traverse (typecheckExpression env) body)
+        <*> pure pos
+    where
+        checkExtends = if nameOf extends != "App"
+            then report1 (TypeError (MustExtendApp pos))
+            else pure ()
+
+typecheck :: Environment -> Program -> Analyze Program
+typecheck env (Program classes main pos)
+    = fmap Program
+        (traverse (typecheckClass env) classes)
+        <*> typecheckMain env main
+        <*> pure pos
+
+

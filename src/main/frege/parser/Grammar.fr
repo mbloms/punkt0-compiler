@@ -1,9 +1,10 @@
 module punkt0.parser.Grammar where
+import punkt0.ScalaShow
 import parser.Parser
 import punkt0.Positioned
-import lexer.Lexer(Lexeme())
+import lexer.Lexer(Lexeme(), FileIterator, scanTokens)
 import punkt0.lexer.Tokens as Tokens(Token(), getIdentifierString, getLiteral, isLiteral)
-
+import punkt0.Typed
 type Lex = Lexeme Token
 
 literal = satisfy $ \lex ->
@@ -16,7 +17,7 @@ tokenIdentifier = satisfy $ \lex ->
         Lexeme.Ok (Tokens.Identifier _) _ = true
         _ = false
 
-token t = symbol (Lexeme.Ok t undefined)
+token t = symbol (Lexeme.Ok t undefined) <?> ("Failed to match " ++ show t)
 
 tokenOp :: Tokens.Operator -> Parser Lex Lex
 tokenOp t = token (Tokens.Op t)
@@ -54,6 +55,9 @@ derive Show ClassDeclaration
 
 instance Positioned ClassDeclaration where
     position Class{pos} = pos
+
+instance Typed ClassDeclaration where
+    typeOf (Class{name}) = TClass (nameOf name)
 
 wrapping start mid after = start *> mid <* after
 braces mid = wrapping (token Tokens.LBrace) mid (token Tokens.RBrace)
@@ -98,6 +102,10 @@ data VarDeclaration = Var
     }
 derive Eq VarDeclaration
 derive Show VarDeclaration
+instance Positioned VarDeclaration where
+    position Var{pos} = pos
+instance Typed VarDeclaration where
+    typeOf (Var{varType}) = ttype varType
 
 varDeclaration :: Parser Lex VarDeclaration
 varDeclaration = do
@@ -121,6 +129,12 @@ data MethodDeclaration = MethodDeclaration
     }
 derive Eq MethodDeclaration
 derive Show MethodDeclaration
+instance Positioned MethodDeclaration where
+    position MethodDeclaration{pos} = pos
+
+instance Typed MethodDeclaration where
+    typeOf (MethodDeclaration{args,returnType})
+        = TMethod (fmap (ttype . snd) args, ttype returnType)
 
 list1 :: Parser t a -> Parser t b -> Parser t [a]
 list1 elem separator = (fmap (:) elem <*> many (separator *> elem))
@@ -155,6 +169,13 @@ data Type
 derive Eq Type
 derive Show Type
 
+ttype :: Type -> TType
+ttype Int = TInt
+ttype String = TString
+ttype Unit = TUnit
+ttype Bool = TBool
+ttype (User name) = TClass (nameOf name)
+
 typeParser :: Parser Lex Type
 typeParser =
     (tokenType Tokens.BooleanType *> pure Bool)
@@ -163,13 +184,42 @@ typeParser =
     <|> (tokenType Tokens.UnitType *> pure Unit)
     <|> (fmap User identifier)
 
+data LocalType
+    = Param
+    | LocalVar
+derive Show LocalType
+derive Eq LocalType
+
+data SymbolType
+    = ClassSymbol
+    | FieldSymbol String
+    | MethodSymbol String
+    | LocalSymbol LocalType Int
+derive Show SymbolType
+derive Eq SymbolType
+
 data Identifier
-    = ID String Position
-derive Eq Identifier
+    = ID {str :: String, pos :: Position}
+    | Symbol Int SymbolType TType Identifier
 derive Show Identifier
+instance Eq Identifier where
+    (ID a _) == (ID b _) = a == b
+    (Symbol _ _ _ a) == (Symbol _ _ _ b) = a == b
+    (Symbol _ _ _ a) == (b@(ID _ _)) = a == b
+    (a@(ID _ _)) == (Symbol _ _ _ b) = a == b
+
+    hashCode (ID a _) = hashCode a
+    hashCode (Symbol _ _ _ a) = hashCode a
+
+instance Ord Identifier where
+    (ID a _) <=> (ID b _) = a <=> b
+    (Symbol _ _ _ a) <=> (Symbol _ _ _ b) = a <=> b
+    (Symbol _ _ _ a) <=> (b@(ID _ _)) = a <=> b
+    (a@(ID _ _)) <=> (Symbol _ _ _ b) = a <=> b
 
 instance Positioned Identifier where
     position (ID _ pos) = pos
+    position (Symbol _ _ _ id) = position id
 
 identifier :: Parser Lex Identifier
 identifier =
@@ -212,10 +262,15 @@ data Expression
     | While {predicate :: Expression, body :: Expression, pos :: Position}
     | Println {expr :: Expression, pos :: Position}
     | Assign {var :: Identifier, expr :: Expression, pos :: Position}
+    | Typed {t :: TType, expr :: Expression}
 derive Eq Expression
 derive Show Expression
 
+instance Typed (Identifier, Type) where
+    typeOf (_, t) = ttype t
+
 instance Positioned Expression where
+    position (Typed _ e) = position e
     position (BinOp _ _ _ pos) = pos
     position (MethodCall _ _ _ pos) = pos
     position (LitInt _ pos) = pos
@@ -324,8 +379,6 @@ simpleexpression =
             body <- expression
             return $ While predicate body w.position
 
-class ScalaShow a where
-    scalashow :: a -> String
 
 wrap :: String -> (a -> String) -> a -> String
 wrap prefix f x = prefix ++ "(" ++ f x ++ ")"
@@ -377,6 +430,7 @@ instance ScalaShow a => ScalaShow (Maybe a) where
 
 instance ScalaShow Identifier where
     scalashow (ID str _) = wrap "Identifier" id str
+    scalashow (Symbol _ _ _ i) = wrap "Identifier" id (scalashow i)
 
 instance ScalaShow Expression where
     scalashow (BinOp e op e' _) = wrap (scalashow op) id $ joinPair e e'
@@ -395,6 +449,7 @@ instance ScalaShow Expression where
     scalashow (Println expr _) = wrap "Println" scalashow expr
     scalashow (Assign name expr _) = wrap "Assign" id $ joinPair name expr
     scalashow (Identifier i _) = scalashow i
+    scalashow other = error $ "No pattern for scalashow "++show other
 
 
 instance ScalaShow MethodDeclaration where
@@ -421,3 +476,59 @@ instance ScalaShow Type where
     scalashow String = "StringType()"
     scalashow Unit = "UnitType()"
     scalashow (User x) = scalashow x
+
+parseCode parser code =
+    let
+        tokens = (scanTokens Tokens.token) . FileIterator.from $ code
+        parsed = parse parser tokens
+    in case parsed of
+        Right ([], parseTree) -> Just parseTree
+        Right (_, parseTree) -> Just parseTree
+        _ -> Nothing
+
+class Named t where
+    nameOf :: t -> String
+
+class WithId t where
+    idOf :: t -> Identifier
+    setId :: Identifier -> t -> t
+
+instance WithId Identifier where
+    idOf i = i
+    setId i _ = i
+
+instance WithId ClassDeclaration where
+    idOf (Class{name}) = name
+    setId name c = c.{name=name}
+
+instance WithId MethodDeclaration where
+    idOf (MethodDeclaration{name}) = name
+    setId name v = v.{name=name}
+
+instance WithId VarDeclaration where
+    idOf (Var{name}) = name
+    setId name v = v.{name=name}
+
+instance WithId (Identifier, Type) where
+    idOf (name, _) = name
+    setId name (_, t) = (name, t)
+
+instance Named String where
+    nameOf = id
+
+instance Named Identifier where
+    nameOf (ID n _) = n
+    nameOf (Symbol _ _ _ id) = nameOf id
+
+instance Named ClassDeclaration where
+    nameOf (Class{name=id}) = nameOf id
+
+instance Named VarDeclaration where
+    nameOf (Var{name=id}) = nameOf id
+
+instance Named MethodDeclaration where
+    nameOf (MethodDeclaration{name=id}) = nameOf id
+
+instance Named a => Named (a, Position) where
+    nameOf (a, _) = nameOf a
+
