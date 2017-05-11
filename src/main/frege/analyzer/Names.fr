@@ -25,6 +25,7 @@ verifyMap m
     | otherwise = error "Oops."
 
 verifyEnv :: Environment -> Environment
+verifyEnv e = e
 verifyEnv (e@Env c m v)
     | all verifyMap [c,m,v] = e
     | otherwise = error "How do you even?"

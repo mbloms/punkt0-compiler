@@ -208,7 +208,7 @@ typecheckExpression env (println@Println{expr,pos})
 
 analyzeAssign :: Identifier -> Position -> Analyze ()
 analyzeAssign (Symbol _ (LocalSymbol Param _) _ i) pos = report1 (ParamAssign (nameOf i) pos)
-analyzeAssign (i@ID _ _) = error $ "Internal error: No symbol assigned." ++ show i ++ show pos
+analyzeAssign (i@ID _ _) pos = error $ "Internal error: No symbol assigned." ++ show i ++ show pos
 analyzeAssign _ _ = pure ()
 
 typecheckMethod :: Environment -> MethodDeclaration -> Analyze MethodDeclaration
