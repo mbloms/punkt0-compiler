@@ -17,15 +17,18 @@ createSymbolsMethod symbol (m@MethodDeclaration{args,vars,exprs})
         a = length args
         (j, vars') = tagIds (\l -> LocalSymbol LocalVar (a+l+1)) i vars
 
+infixl 1  >>$
+(>>$) :: a -> (a->b) -> b
+(>>$) x f = f x
+
 createSymbolsClass :: Int -> ClassDeclaration -> (Int, ClassDeclaration)
-createSymbolsClass symbol (Class name extends vars methods pos)
-    = (k, Class name extends vars' methods'' pos)
-    where
-        className = nameOf name
-        (i, vars') = tagIds (const $ FieldSymbol className) symbol vars
-        (j, methods') = tagIds (const $ MethodSymbol className) i methods
-        (k, methods'') = createSymbolsNested createSymbolsMethod j methods'
-        createClass vs (k,ms) = (k, Class name extends vs ms pos)
+createSymbolsClass symbol (Class name extends vars methods pos) =
+    let className = nameOf name
+    in  tagIds (const $ FieldSymbol className) symbol vars
+    >>$ \(i, vars) -> tagIds (const $ MethodSymbol className) i methods
+    >>$ \(i, methods) -> createSymbolsNested createSymbolsMethod i methods
+    >>$ \(i, methods) -> (i, Class name extends vars methods pos)
+
 
 createSymbolsNested :: (Int -> a -> (Int, a)) -> Int -> [a] -> (Int, [a])
 createSymbolsNested nested symbol xs = createSymbolsNested' symbol xs []
