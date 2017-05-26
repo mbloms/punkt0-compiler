@@ -166,6 +166,7 @@ data Type
     | String
     | Unit
     | User {typeName :: Identifier}
+    | Arrow Type Type
 derive Eq Type
 derive Show Type
 
@@ -176,13 +177,20 @@ ttype Unit = TUnit
 ttype Bool = TBool
 ttype (User name) = TClass (nameOf name)
 
-typeParser :: Parser Lex Type
-typeParser =
+simpleType :: Parser Lex Type
+simpleType =
     (tokenType Tokens.BooleanType *> pure Bool)
     <|> (tokenType Tokens.IntType *> pure Int)
     <|> (tokenType Tokens.StringType *> pure String)
     <|> (tokenType Tokens.UnitType *> pure Unit)
     <|> (fmap User identifier)
+    <|> parens typeParser
+
+typeParser :: Parser Lex Type
+typeParser = do
+    t <- simpleType
+    t2 <- optional (tokenOp Tokens.Arrow *> typeParser)
+    return $ maybe t (Arrow t) t2
 
 data LocalType
     = Param
