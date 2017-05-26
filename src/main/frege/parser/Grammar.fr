@@ -239,6 +239,7 @@ data BinOp
     | Minus
     | Times
     | Div
+    | Apply
 derive Show BinOp
 derive Eq BinOp
 
@@ -268,6 +269,8 @@ data Expression
     | Closure [Identifier] Identifier Type Expression
 derive Eq Expression
 derive Show Expression
+
+data Lambda = Lambda Identifier Type Expression
 
 instance Typed (Identifier, Type) where
     typeOf (_, t) = ttype t
@@ -301,7 +304,10 @@ binOp stronger op = do
         buildOp e [] = e
         buildOp e ((operator, e2):rest) = buildOp (BinOp e operator e2 e.position) rest
 
-expression = orative
+expression = apply
+
+apply :: Parser Lex Expression
+apply = binOp orative (tokenOp Tokens.Apply *> pure Apply)
 
 orative :: Parser Lex Expression
 orative = binOp andative (tokenOp Tokens.Or *> pure Or)
@@ -357,6 +363,7 @@ simpleexpression =
     (parens expression)
     <|> (posFirst (token Tokens.LBrace) $ fmap Block $ list expression (token Tokens.SemiColon) <* token Tokens.RBrace)
     <|> (fmap (literalToExpression) literal)
+    <|> lambda
     <|> (posFirst (tokenKey Tokens.New) $ fmap New $ identifier <* parens (pure ()))
     <|> (posFirst (token Tokens.Bang) $ fmap Not methodCall)
     <|> (posFirst (tokenKey Tokens.Println) $ fmap Println $ parens expression)
@@ -381,7 +388,17 @@ simpleexpression =
             predicate <- parens expression
             body <- expression
             return $ While predicate body w.position
+        lambda = do
+            l <- tokenKey Tokens.Lambda
+            arg <- identifier
+            _ <- token Tokens.Colon
+            typ <- typeParser
+            _ <- token Tokens.Dot
+            e <- expression
+            return $ lambdaToClosure $ Lambda arg typ e
 
+lambdaToClosure :: Lambda -> Expression
+lambdaToClosure (Lambda arg typ e) = Closure (error "Not implemented.") arg typ e
 
 wrap :: String -> (a -> String) -> a -> String
 wrap prefix f x = prefix ++ "(" ++ f x ++ ")"
