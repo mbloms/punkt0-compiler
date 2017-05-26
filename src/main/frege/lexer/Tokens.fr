@@ -66,6 +66,7 @@ data Operator = Plus
     | Assign
     | LessThan
     | Apply
+    | Arrow
 
 derive Show Operator
 derive Eq Operator
@@ -90,8 +91,7 @@ operator
     <|> (char '$' *> pure Apply)
 
 
-lambda
-    = ((char '\\' <|> char '\u03BB') *> pure $ Keyword Lambda)
+lambda = ((char '\\' <|> char '\u03BB') *> (pure $ Keyword Lambda))
 
 data Keyword = Class
     | Extends
