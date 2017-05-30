@@ -124,6 +124,19 @@ analyzeExpr _ (e@LitNull{}) = pure e
 analyzeExpr _ (e@LitTrue{}) = pure e
 analyzeExpr _ (e@LitFalse{}) = pure e
 analyzeExpr _ (e@Typed{}) = pure e
+analyzeExpr env (Closure free arg t expr pos)
+    = case freeCheck of
+        ALeft errors -> ALeft errors
+        ARight free' -> (ARight $ Closure (fromList free') arg t) <*> expr' <*> pure pos
+    where
+        lookupFree :: (Identifier, ()) -> Analyze (Identifier, ())
+        lookupFree (i, ()) = case lookupVar env i <|> lookupClass env i of
+            ARight i' -> ARight (i', ())
+            ALeft errors -> ALeft errors
+        freeCheck :: Analyze [(Identifier, ())]
+        freeCheck = traverse lookupFree (each free)
+        env' = env.{vars= insert (nameOf arg) arg env.vars}
+        expr' = analyzeExpr env' expr
 
 analyzeVar :: Environment -> VarDeclaration -> Analyze VarDeclaration
 analyzeVar env (var@Var{expr,varType,pos}) = typeExists *> case expr of

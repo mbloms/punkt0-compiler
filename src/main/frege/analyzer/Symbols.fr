@@ -9,20 +9,94 @@ tagIds symbolType symbol xs = (i' + symbol, xs')
         l = length xs
         tagId i c = setId (Symbol (symbol+i) (symbolType i) (typeOf c) (idOf c)) c
 
+createExpressionSymbols :: Int -> Expression -> (Int, Expression)
+createExpressionSymbols symbol (Closure free arg t expr pos)
+    = let
+        (j, expr') = createExpressionSymbols symbol expr
+    in (j+1, Closure free (Symbol (j+1) LambdaSymbol (ttype t) arg) t expr' pos)
+createExpressionSymbols symbol (Identifier i pos)
+    = (symbol, Identifier i pos)
+createExpressionSymbols symbol (New i pos)
+    = (symbol, New i pos)
+createExpressionSymbols symbol (BinOp lhs op rhs pos)
+    = let
+        (j, lhs') = createExpressionSymbols symbol lhs
+        (k, rhs') = createExpressionSymbols j rhs
+    in (k, BinOp lhs' op rhs' pos)
+createExpressionSymbols symbol (MethodCall expr name args pos)
+    = let
+        (j, expr') = createExpressionSymbols symbol expr
+        (k, args') = symbolManyExprs j args
+    in (k, MethodCall expr' name args' pos)
+createExpressionSymbols symbol (Not expr pos)
+    = let
+        (j, expr') = createExpressionSymbols symbol expr
+    in (j, Not expr' pos)
+createExpressionSymbols symbol (Block exprs pos)
+    = let
+        (j, exprs') = symbolManyExprs symbol exprs
+    in (j, Block exprs' pos)
+createExpressionSymbols symbol (Println expr pos)
+    = let
+        (j, expr') = createExpressionSymbols symbol expr
+    in (j, Println expr' pos)
+createExpressionSymbols symbol (Assign var expr pos)
+    = let
+        (j, expr') = createExpressionSymbols symbol expr
+    in (j, Assign var expr' pos)
+createExpressionSymbols symbol (If p body Nothing pos)
+    = let
+        (j, p') = createExpressionSymbols symbol p
+        (k, body') = createExpressionSymbols j body
+    in (k, If p' body' Nothing pos)
+createExpressionSymbols symbol (If p body (Just elseBody) pos)
+    = let
+        (j, p') = createExpressionSymbols symbol p
+        (k, body') = createExpressionSymbols j body
+        (l, elseBody') = createExpressionSymbols k elseBody
+    in (l, If p' body' (Just elseBody') pos)
+createExpressionSymbols symbol (While p body pos)
+    = let
+        (j, p') = createExpressionSymbols symbol p
+        (k, body') = createExpressionSymbols j body
+    in (k, While p' body' pos)
+createExpressionSymbols symbol (e@LitInt{}) = (symbol, e)
+createExpressionSymbols symbol (e@LitString{}) = (symbol, e)
+createExpressionSymbols symbol (e@LitThis{}) = (symbol, e)
+createExpressionSymbols symbol (e@LitNull{}) = (symbol, e)
+createExpressionSymbols symbol (e@LitTrue{}) = (symbol, e)
+createExpressionSymbols symbol (e@LitFalse{}) = (symbol, e)
+createExpressionSymbols symbol (e@Typed{}) = error "should have no Typed in symbol tagging"
+
+symbolManyExprs :: Int -> [Expression] -> (Int, [Expression])
+symbolManyExprs symbol exprs = foldr step (symbol, []) exprs
+    where
+        step e (i, es) = let
+            (j, e') = createExpressionSymbols i e
+            in (j, e' : es)
+
+createSymbolsVars :: (Int -> SymbolType) -> Int -> [VarDeclaration] -> (Int, [VarDeclaration])
+createSymbolsVars tagger symbol vars = let
+    (j, vars') = tagIds tagger symbol vars
+    exprs = fmap (\var -> var.expr) vars'
+    (k, exprs') = symbolManyExprs j exprs
+    in (k, zipWith (\var expr -> var.{expr=expr}) vars' exprs')
+
 createSymbolsMethod :: Int -> MethodDeclaration -> (Int, MethodDeclaration)
 createSymbolsMethod symbol (m@MethodDeclaration{args,vars,exprs})
-    = (j, m.{args=args',vars=vars'})
+    = (j, m.{args=args',vars=vars',exprs=exprs'})
     where
         (i, args') = tagIds (\l -> LocalSymbol Param (l+1)) symbol args
         a = length args
-        (j, vars') = tagIds (\l -> LocalSymbol LocalVar (a+l+1)) i vars
+        (j, vars') = createSymbolsVars (\l -> LocalSymbol LocalVar (a+l+1)) i vars
+        (k, exprs') = symbolManyExprs j exprs
 
 createSymbolsClass :: Int -> ClassDeclaration -> (Int, ClassDeclaration)
 createSymbolsClass symbol (Class name extends vars methods pos)
     = (k, Class name extends vars' methods'' pos)
     where
         className = nameOf name
-        (i, vars') = tagIds (const $ FieldSymbol className) symbol vars
+        (i, vars') = createSymbolsVars (const $ FieldSymbol className) symbol vars
         (j, methods') = tagIds (const $ MethodSymbol className) i methods
         (k, methods'') = createSymbolsNested createSymbolsMethod j methods'
         createClass vs (k,ms) = (k, Class name extends vs ms pos)
@@ -39,7 +113,7 @@ createSymbolsMain :: Int -> MainDeclaration -> (Int, MainDeclaration)
 createSymbolsMain symbol (main@Main{vars}) =
     (j, main.{vars=vars'})
     where
-        (j, vars') = tagIds (\i -> LocalSymbol LocalVar (i+1)) symbol vars
+        (j, vars') = createSymbolsVars (\i -> LocalSymbol LocalVar (i+1)) symbol vars
 
 tagMain i (main@Main{name})
     = main.{name=Symbol i ClassSymbol (TClass $ nameOf name) name}
