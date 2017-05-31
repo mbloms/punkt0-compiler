@@ -124,10 +124,10 @@ analyzeExpr _ (e@LitNull{}) = pure e
 analyzeExpr _ (e@LitTrue{}) = pure e
 analyzeExpr _ (e@LitFalse{}) = pure e
 analyzeExpr _ (e@Typed{}) = pure e
-analyzeExpr env (Closure free arg t expr pos)
+analyzeExpr env (Closure free arg t expr r pos)
     = case freeCheck of
         ALeft errors -> ALeft errors
-        ARight free' -> (ARight $ Closure (fromList free') arg t) <*> expr' <*> pure pos
+        ARight free' -> (ARight $ Closure (fromList free') arg t) <*> expr' <*> pure r <*> pure pos
     where
         lookupFree :: (Identifier, ()) -> Analyze (Identifier, ())
         lookupFree (i, ()) = case lookupVar env i of
@@ -150,7 +150,7 @@ analyzeVar env (var@Var{expr,varType,pos}) = typeExists *> case expr of
     LitFalse{} -> pure var
     LitNull{} -> pure var
     New{} -> fmap (var.{expr=}) (analyzeExpr env expr)
-    Closure free _ _ _ _ ->
+    Closure{free} ->
         if null free
             then pure var
             else report1 (NonConstantDeclaration (position expr))

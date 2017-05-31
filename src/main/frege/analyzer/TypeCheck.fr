@@ -140,13 +140,20 @@ getType _ = error "Internal error: all expressions should have type when calling
 
 typecheckExpression :: Environment -> Expression -> Analyze Expression
 typecheckExpression env (e@Typed _ _) = pure e
-typecheckExpression env (Closure free x t expr pos)
+typecheckExpression env (Closure free x t expr Nothing pos)
     = case typecheckExpression env expr of
         ALeft errors -> ALeft errors
         ARight expr' ->
-            ARight
-            $ Typed (TArrow (ttype t) (getType expr'))
-            $ Closure free x t expr' pos
+            if (getType expr' == TBottomRef)
+                then report1 $ TypeError $ CannotDeduceType expr
+                else ARight
+                    $ Typed (TArrow (ttype t) (getType expr'))
+                    $ Closure free x t expr' Nothing pos
+typecheckExpression env (Closure free x t expr (Just r) pos)
+    = toAccumulate
+    $ toEither (typecheckExpression env expr)
+    >>= \expr' -> toEither (unify env pos (getType expr') (ttype r))
+    >>= \r' -> pure (Typed (TArrow (ttype t) r') (Closure free x t expr' (Just r) pos))
 typecheckExpression env (e@LitInt _ _) = fmap Typed (exprType env e) <*> pure e
 typecheckExpression env (e@LitString _ _) = fmap Typed (exprType env e) <*> pure e
 typecheckExpression env (e@LitTrue _) = fmap Typed (exprType env e) <*> pure e

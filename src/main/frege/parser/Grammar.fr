@@ -275,12 +275,23 @@ data Expression
          , elseBody :: (Maybe Expression)
          , pos :: Position
          }
-    | While {predicate :: Expression, body :: Expression, pos :: Position}
-    | Println {expr :: Expression, pos :: Position}
-    | Assign {var :: Identifier, expr :: Expression, pos :: Position}
-    | Typed {t :: TType, expr :: Expression}
-    | Lambda Identifier Type Expression Position
-    | Closure (HashMap Identifier ()) Identifier Type Expression Position
+    | While { predicate :: Expression, body :: Expression, pos :: Position }
+    | Println { expr :: Expression, pos :: Position }
+    | Assign { var :: Identifier, expr :: Expression, pos :: Position }
+    | Typed { t :: TType, expr :: Expression}
+    | Lambda { var :: Identifier
+             , argType :: Type
+             , expr :: Expression
+             , returnType :: (Maybe Type)
+             , pos :: Position
+             }
+    | Closure { free :: (HashMap Identifier ())
+             , var :: Identifier
+             , argType :: Type
+             , expr :: Expression
+             , returnType :: (Maybe Type)
+             , pos :: Position
+             }
 derive Eq Expression
 derive Show Expression
 
@@ -407,7 +418,8 @@ simpleexpression =
             typ <- typeParser
             _ <- token Tokens.Dot
             e <- expression
-            return $ Lambda arg typ e l.position
+            cast <- optional (token Tokens.Colon *> typeParser)
+            return $ Lambda arg typ e cast l.position
 
 wrap :: String -> (a -> String) -> a -> String
 wrap prefix f x = prefix ++ "(" ++ f x ++ ")"
@@ -478,6 +490,10 @@ instance ScalaShow Expression where
     scalashow (Println expr _) = wrap "Println" scalashow expr
     scalashow (Assign name expr _) = wrap "Assign" id $ joinPair name expr
     scalashow (Identifier i _) = scalashow i
+    scalashow (Closure _ arg t expr ret _) = wrap "Closure" (joined ",") 
+        (scalashow arg: scalashow t: scalashow expr: (maybe id ((:) . scalashow) ret) [])
+    scalashow (Lambda arg t expr ret _) = wrap "Closure" (joined ",") 
+        (scalashow arg: scalashow t: scalashow expr: (maybe id ((:) . scalashow) ret) [])
     scalashow other = error $ "No pattern for scalashow "++show other
 
 

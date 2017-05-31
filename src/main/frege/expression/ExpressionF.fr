@@ -21,8 +21,19 @@ data ExpressionF a
     | WhileF {predicate :: a, body :: a, pos :: Position}
     | PrintlnF {expr :: a, pos :: Position}
     | AssignF {var :: Identifier, expr :: a, pos :: Position}
-    | LambdaF Identifier Type a Position
-    | ClosureF (HashMap Identifier ()) Identifier Type a Position
+    | LambdaF { var :: Identifier
+              , argType :: Type
+              , expr :: a
+              , returnType :: (Maybe Type)
+              , pos :: Position
+              }
+    | ClosureF { free :: HashMap Identifier ()
+              , var :: Identifier
+              , argType :: Type
+              , expr :: a
+              , returnType :: (Maybe Type)
+              , pos :: Position
+              }
 
 instance Functor ExpressionF where
     fmap f (e@BinOpF lhs op rhs pos) = BinOpF (f lhs) op (f rhs) pos
@@ -32,8 +43,9 @@ instance Functor ExpressionF where
     fmap f (IfF p b e pos) = IfF (f p) (f b) (fmap f e) pos
     fmap f (WhileF p b pos) = WhileF (f p) (f b) pos
     fmap f (AssignF var expr pos) = AssignF var (f expr) pos
-    fmap f (LambdaF x t expr pos) = LambdaF x t (f expr) pos
-    fmap f (ClosureF free x t expr pos) = ClosureF free x t (f expr) pos
+    fmap f (LambdaF x t expr r pos) = LambdaF x t (f expr) r pos
+    fmap f (ClosureF free x t expr r pos) = ClosureF free x t (f expr) r pos
+    fmap f (PrintlnF expr pos) = PrintlnF (f expr) pos
     fmap _ (IdentifierF {id, pos}) = IdentifierF id pos
     fmap _ (LitIntF n pos) = LitIntF n pos
     fmap _ (LitStringF s pos) = LitStringF s pos
@@ -60,8 +72,8 @@ projectExpr (If { predicate, body, elseBody, pos }) = IfF predicate body elseBod
 projectExpr (While {predicate, body, pos}) = WhileF predicate body pos
 projectExpr (Println {expr, pos}) = PrintlnF expr pos
 projectExpr (Assign {var, expr, pos}) = AssignF var expr pos
-projectExpr (Lambda x t expr pos) = LambdaF x t expr pos
-projectExpr (Closure free x t expr pos) = ClosureF free x t expr pos
+projectExpr (Lambda x t expr r pos) = LambdaF x t expr r pos
+projectExpr (Closure free x t expr r pos) = ClosureF free x t expr r pos
 
 injectExpr :: ExpressionF Expression -> Expression
 injectExpr (BinOpF {lhs, op, rhs, pos}) = BinOp lhs op rhs pos
@@ -80,8 +92,8 @@ injectExpr (IfF { predicate, body, elseBody, pos }) = If predicate body elseBody
 injectExpr (WhileF {predicate, body, pos}) = While predicate body pos
 injectExpr (PrintlnF {expr, pos}) = Println expr pos
 injectExpr (AssignF {var, expr, pos}) = Assign var expr pos
-injectExpr (LambdaF x t expr pos) = Lambda x t expr pos
-injectExpr (ClosureF free x t expr pos) = Closure free x t expr pos
+injectExpr (LambdaF x t expr r pos) = Lambda x t expr r pos
+injectExpr (ClosureF free x t expr r pos) = Closure free x t expr r pos
 
 cataExpr :: (ExpressionF a -> a) -> Expression -> a
 cataExpr algebra = algebra . fmap (cataExpr algebra) . projectExpr

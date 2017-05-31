@@ -20,7 +20,7 @@ createExpressionSymbols expr symbol = cataExpr alg expr symbol where
     alg (LitIntF n pos) symbol =  (symbol, LitInt n pos)
     alg (LitStringF s pos) symbol = (symbol, LitString s pos)
     alg (LitThisF pos) symbol = (symbol, LitThis pos)
-    alg (LitNullF pos) symbol = (symbol, LitThis pos)
+    alg (LitNullF pos) symbol = (symbol, LitNull pos)
     alg (LitTrueF pos) symbol = (symbol, LitTrue pos)
     alg (LitFalseF pos) symbol = (symbol, LitFalse pos)
     alg (BinOpF lhs op rhs pos) symbol = let
@@ -56,11 +56,11 @@ createExpressionSymbols expr symbol = cataExpr alg expr symbol where
         (j, p') = p symbol
         (k, body') = body j
         in (k, While p' body' pos)
-    alg (ClosureF free x t expr pos) symbol = error "Should have no closures when generating symbols"
-    alg (LambdaF x t expr pos) symbol = let
+    alg (ClosureF free x t expr _ pos) symbol = error "Should have no closures when generating symbols"
+    alg (LambdaF x t expr r pos) symbol = let
         (j, expr') = expr symbol
         k = j+1
-        in (k, Lambda (Symbol k LambdaSymbol (ttype t) x) t expr' pos)
+        in (k, Lambda (Symbol k LambdaSymbol (ttype t) x) t expr' r pos)
     where
         applyMany symbol = foldr (\a (i,as) -> let (i', a') = a i in (i', a' : as)) (symbol, [])
 

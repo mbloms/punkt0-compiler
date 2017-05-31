@@ -7,9 +7,9 @@ import punkt0.expression.ExpressionF
 
 lambdaToClosure :: Expression -> Expression
 lambdaToClosure = cataExpr alg where
-    alg (LambdaF arg typ e pos) = let
+    alg (LambdaF arg typ e r pos) = let
             boundArg = fromList [(arg, ())]
-        in injectExpr $ ClosureF (freeVars e `difference` boundArg) arg typ e pos
+        in injectExpr $ ClosureF (freeVars e `difference` boundArg) arg typ e r pos
     alg x = injectExpr x
 
 closureConvert :: Program -> Program
@@ -34,8 +34,8 @@ freeVars = cataExpr alg where
     alg (IfF p body Nothing pos) = unions [p, body]
     alg (IfF p body (Just elseBody) pos) = unions [p, body, elseBody]
     alg (WhileF p body pos) = p `union` body
-    alg (ClosureF free _ _ _ _) = free
-    alg (LambdaF x t expr _) = expr `difference` (fromList [(x, ())])
+    alg (ClosureF free _ _ _ _ _) = free
+    alg (LambdaF x t expr _ _) = expr `difference` (fromList [(x, ())])
 
 --  λx : Int. λy : Int. (x + y) []
 --  λx : Int. (λy : Int. x + y) [λy : Int. x + y]
@@ -43,7 +43,7 @@ freeVars = cataExpr alg where
 
 lambdaLift :: Expression -> [Expression]
 lambdaLift = paraExpr alg where
-    alg (ClosureF _ _ _ (closure, lifted) _)
+    alg (ClosureF _ _ _ (closure, lifted) _ _)
         = closure : lifted
     alg (BinOpF (_,lhs) op (_,rhs) pos) = lhs ++ rhs
     alg (MethodCallF (_,expr) name args pos) = expr ++ (concat $ fmap snd args)
@@ -54,7 +54,7 @@ lambdaLift = paraExpr alg where
     alg (IfF (_, p) (_, body) Nothing pos) = concat [p, body]
     alg (IfF (_, p) (_, body) (Just (_, elseBody)) pos) = concat [p, body, elseBody]
     alg (WhileF (_, p) (_, body) pos) = p ++ body
-    alg (LambdaF x t (_, expr) _) = error "Should not have Lambda in lambda lifting phase"
+    alg (LambdaF{}) = error "Should not have Lambda in lambda lifting phase"
     alg LitIntF{} =  []
     alg LitStringF{} = []
     alg LitThisF{} = []
