@@ -34,6 +34,9 @@ unify (supers, interfaces, className) pos (TClass c) (TClass d)
     | otherwise = if d `elem` unJust (lookup c supers)
         then pure (TClass c)
         else report1 (TypeError $ UnificationError (TClass c) (TClass d) pos)
+unify _ _ TAnyRef TAnyRef = pure TAnyRef
+unify _ _ TBottomRef TBottomRef = pure TBottomRef
+unify _ _ TBottomRef TAnyRef = pure TBottomRef
 unify _ pos (TClass c) TAnyRef = pure (TClass c)
 unify _ pos TBottomRef (TClass c) = pure (TClass c)
 unify _ pos t1 t2 = report1 (TypeError $ UnificationError t1 t2 pos)
@@ -44,7 +47,17 @@ leastCommonClass xs ys
         zs = reverse (zip (reverse xs) (reverse ys))
         common = find (\(c,d) -> c == d) zs
 
-greatestLowerType (supers, interfaces, className) pos t t' = error "have no greatest lower bound yet"
+greatestLowerType (env@(supers, interfaces, className)) pos (TClass c) (TClass d)
+    = case unify env pos (TClass c) (TClass d) of
+        ALeft _ ->
+            case unify env pos (TClass d) (TClass c) of
+                ALeft _ -> ARight TBottomRef -- null inhabits all classes
+                result -> result
+        result -> result
+greatestLowerType env pos (TClass c) TAnyRef = pure (TClass c)
+greatestLowerType env pos TAnyRef (TClass c) = pure (TClass c)
+greatestLowerType env pos (TClass c) TBottomRef = pure TBottomRef
+greatestLowerType env pos TBottomRef (TClass c) = pure TBottomRef
 
 -- Get the type that is the most specific
 -- common type between the two types
@@ -53,8 +66,10 @@ greatestLowerType (supers, interfaces, className) pos t t' = error "have no grea
 leastCommonType (supers, interfaces, className) pos (TClass c) (TClass d)
     | c == d = pure (TClass c)
     | otherwise = leastCommonClass (c : (unJust $ lookup c supers)) (d : (unJust $ lookup d supers))
-leastCommonType env pos (TClass c) TAnyRef = pure (TClass c)
-leastCommonType env pos TAnyRef (TClass c) = pure (TClass c)
+leastCommonType env pos (TClass c) TAnyRef = pure TAnyRef
+leastCommonType env pos TAnyRef (TClass c) = pure TAnyRef
+leastCommonType env pos (TClass c) TBottomRef = pure (TClass c)
+leastCommonType env pos TBottomRef (TClass c) = pure (TClass c)
 leastCommonType env pos (TArrow t r) (TArrow t' r')
     = toAccumulate $
     toEither (greatestLowerType env pos t t') >>= \a ->
