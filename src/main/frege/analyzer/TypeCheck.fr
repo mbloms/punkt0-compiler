@@ -20,6 +20,11 @@ equalType pos t1 t2
 -- t1 <: t2
 -- t1 is a subtype of t2
 unify :: Environment -> Position -> TType -> TType -> Analyze TType
+-- (t -> r) <: (t' -> r') if t :> t' and r <: r'
+unify env pos (TArrow t r) (TArrow t' r')
+    = unify env pos t' t
+    *> unify env pos r r'
+    *> pure (TArrow t' r')
 unify _ pos TUnit TUnit = pure TUnit
 unify _ pos TInt TInt = pure TInt
 unify _ pos TBool TBool = pure TBool
@@ -39,6 +44,8 @@ leastCommonClass xs ys
         zs = reverse (zip (reverse xs) (reverse ys))
         common = find (\(c,d) -> c == d) zs
 
+greatestLowerType (supers, interfaces, className) pos t t' = error "have no greatest lower bound yet"
+
 -- Get the type that is the most specific
 -- common type between the two types
 -- This is the same as a least upper bound on the
@@ -48,6 +55,11 @@ leastCommonType (supers, interfaces, className) pos (TClass c) (TClass d)
     | otherwise = leastCommonClass (c : (unJust $ lookup c supers)) (d : (unJust $ lookup d supers))
 leastCommonType env pos (TClass c) TAnyRef = pure (TClass c)
 leastCommonType env pos TAnyRef (TClass c) = pure (TClass c)
+leastCommonType env pos (TArrow t r) (TArrow t' r')
+    = toAccumulate $
+    toEither (greatestLowerType env pos t t') >>= \a ->
+    toEither (leastCommonType env pos r r') >>= \b ->
+    pure (TArrow a b)
 -- Unless the types are classes this is the same as normal unification
 leastCommonType env pos t1 t2
     = unify env pos t1 t2
@@ -118,6 +130,13 @@ getType _ = error "Internal error: all expressions should have type when calling
 
 typecheckExpression :: Environment -> Expression -> Analyze Expression
 typecheckExpression env (e@Typed _ _) = pure e
+typecheckExpression env (Closure free x t expr pos)
+    = case typecheckExpression env expr of
+        ALeft errors -> ALeft errors
+        ARight expr' ->
+            ARight
+            $ Typed (TArrow (ttype t) (getType expr'))
+            $ Closure free x t expr' pos
 typecheckExpression env (e@LitInt _ _) = fmap Typed (exprType env e) <*> pure e
 typecheckExpression env (e@LitString _ _) = fmap Typed (exprType env e) <*> pure e
 typecheckExpression env (e@LitTrue _) = fmap Typed (exprType env e) <*> pure e

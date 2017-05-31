@@ -9,7 +9,7 @@ data TType
     | TMethod ([TType], TType)
     | TAnyRef
     | TBottomRef
-    | TLambda TType TType
+    | TArrow TType TType
 derive Show TType
 derive Eq TType
 

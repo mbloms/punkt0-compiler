@@ -1,0 +1,66 @@
+module punkt0.analyzer.LambdaLift where
+import punkt0.parser.Grammar
+import punkt0.analyzer.Types
+import punkt0.Positioned
+import Data.HashMap
+import punkt0.expression.ExpressionF
+
+lambdaToClosure :: Expression -> Expression
+lambdaToClosure = cataExpr alg where
+    alg (LambdaF arg typ e pos) = let
+            boundArg = fromList [(arg, ())]
+        in injectExpr $ ClosureF (freeVars e `difference` boundArg) arg typ e pos
+    alg x = injectExpr x
+
+closureConvert :: Program -> Program
+closureConvert = transformExpressions lambdaToClosure
+
+freeVars :: Expression -> HashMap Identifier ()
+freeVars = cataExpr alg where
+    alg (IdentifierF i pos) = fromList [(i, ())]
+    alg (NewF i pos) = empty
+    alg LitIntF{} =  empty
+    alg LitStringF{} = empty
+    alg LitThisF{} = empty
+    alg LitNullF{} = empty
+    alg LitTrueF{} = empty
+    alg LitFalseF{} = empty
+    alg (BinOpF lhs op rhs pos) = lhs `union` rhs
+    alg (MethodCallF expr name args pos) = expr `union` (unions args)
+    alg (NotF expr pos) = expr
+    alg (BlockF exprs pos) = unions exprs
+    alg (PrintlnF expr pos) = expr
+    alg (AssignF var expr pos) = expr
+    alg (IfF p body Nothing pos) = unions [p, body]
+    alg (IfF p body (Just elseBody) pos) = unions [p, body, elseBody]
+    alg (WhileF p body pos) = p `union` body
+    alg (ClosureF free _ _ _ _) = free
+    alg (LambdaF x t expr _) = expr `difference` (fromList [(x, ())])
+
+-- λx : Int. λy : Int. x + y
+-- λx : Int. λy : Int. x + y [λy : Int. x + y]
+-- λx : Int. λy : Int. x + y [λy : Int. x + y, λx : Int. λy : Int. x + y]
+
+lambdaLift :: Expression -> [Expression]
+lambdaLift = paraExpr alg where
+    alg (ClosureF _ _ _ (closure, lifted) _)
+        = closure : lifted
+    alg (BinOpF (_,lhs) op (_,rhs) pos) = lhs ++ rhs
+    alg (MethodCallF (_,expr) name args pos) = expr ++ (concat $ fmap snd args)
+    alg (NotF (_, expr) pos) = expr
+    alg (BlockF exprs pos) = concat (fmap snd exprs)
+    alg (PrintlnF (_, expr) pos) = expr
+    alg (AssignF var (_, expr) pos) = expr
+    alg (IfF (_, p) (_, body) Nothing pos) = concat [p, body]
+    alg (IfF (_, p) (_, body) (Just (_, elseBody)) pos) = concat [p, body, elseBody]
+    alg (WhileF (_, p) (_, body) pos) = p ++ body
+    alg (LambdaF x t (_, expr) _) = error "Should not have Lambda in lambda lifting phase"
+    alg LitIntF{} =  []
+    alg LitStringF{} = []
+    alg LitThisF{} = []
+    alg LitNullF{} = []
+    alg LitTrueF{} = []
+
+lambdaLifting :: Program -> [Expression]
+lambdaLifting = collectProgram lambdaLift
+
