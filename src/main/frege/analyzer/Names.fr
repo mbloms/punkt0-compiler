@@ -146,6 +146,10 @@ analyzeVar env (var@Var{expr,varType,pos}) = typeExists *> case expr of
     LitFalse{} -> pure var
     LitNull{} -> pure var
     New{} -> fmap (var.{expr=}) (analyzeExpr env expr)
+    Closure free _ _ _ _ ->
+        if null free
+            then pure var
+            else report1 (NonConstantDeclaration (position expr))
     _ -> report1 (NonConstantDeclaration (position expr))
     where
         typeExists = case varType of
