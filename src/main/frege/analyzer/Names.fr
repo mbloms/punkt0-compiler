@@ -130,7 +130,7 @@ analyzeExpr env (Closure free arg t expr pos)
         ARight free' -> (ARight $ Closure (fromList free') arg t) <*> expr' <*> pure pos
     where
         lookupFree :: (Identifier, ()) -> Analyze (Identifier, ())
-        lookupFree (i, ()) = case lookupVar env i <|> lookupClass env i of
+        lookupFree (i, ()) = case lookupVar env i of
             ARight i' -> ARight (i', ())
             ALeft errors -> ALeft errors
         freeCheck :: Analyze [(Identifier, ())]
