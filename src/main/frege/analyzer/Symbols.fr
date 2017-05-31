@@ -10,10 +10,10 @@ tagIds symbolType symbol xs = (i' + symbol, xs')
         tagId i c = setId (Symbol (symbol+i) (symbolType i) (typeOf c) (idOf c)) c
 
 createExpressionSymbols :: Int -> Expression -> (Int, Expression)
-createExpressionSymbols symbol (Closure free arg t expr _ pos) -- <--TODO
+createExpressionSymbols symbol (Closure free arg t expr r pos)
     = let
         (j, expr') = createExpressionSymbols symbol expr
-    in (j+1, Closure free (Symbol (j+1) LambdaSymbol (ttype t) arg) t expr' Nothing pos)
+    in (j+1, Closure free (Symbol (j+1) LambdaSymbol (ttype t) arg) t expr' r pos)
 createExpressionSymbols symbol (Identifier i pos)
     = (symbol, Identifier i pos)
 createExpressionSymbols symbol (New i pos)
