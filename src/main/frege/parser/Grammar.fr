@@ -279,11 +279,11 @@ data Expression
     | Println {expr :: Expression, pos :: Position}
     | Assign {var :: Identifier, expr :: Expression, pos :: Position}
     | Typed {t :: TType, expr :: Expression}
-    | Closure (HashMap Identifier ()) Identifier Type Expression Position
+    | Closure (HashMap Identifier ()) Identifier Type Expression (Maybe Type) Position
 derive Eq Expression
 derive Show Expression
 
-data Lambda = Lambda Identifier Type Expression Position
+data Lambda = Lambda Identifier Type Expression (Maybe Type) Position
 
 instance Typed (Identifier, Type) where
     typeOf (_, t) = ttype t
@@ -408,10 +408,11 @@ simpleexpression =
             typ <- typeParser
             _ <- token Tokens.Dot
             e <- expression
-            return $ lambdaToClosure $ Lambda arg typ e l.position
+            cast <- optional (token Tokens.Colon *> typeParser)
+            return $ lambdaToClosure $ Lambda arg typ e cast l.position
 
 lambdaToClosure :: Lambda -> Expression
-lambdaToClosure (Lambda arg typ e pos) = Closure (freeVars e `difference` boundArg) arg typ e pos
+lambdaToClosure (Lambda arg typ e cast pos) = Closure (freeVars e `difference` boundArg) arg typ e cast pos
     where
         boundArg = fromList [(arg, ())]
 
@@ -447,7 +448,7 @@ freeVars LitNull{} = empty
 freeVars LitTrue{} = empty
 freeVars LitFalse{} = empty
 freeVars Typed{expr} = freeVars expr
-freeVars (Closure free _ _ _ _) = free
+freeVars (Closure free _ _ _ _ _) = free
 
 wrap :: String -> (a -> String) -> a -> String
 wrap prefix f x = prefix ++ "(" ++ f x ++ ")"
@@ -518,6 +519,7 @@ instance ScalaShow Expression where
     scalashow (Println expr _) = wrap "Println" scalashow expr
     scalashow (Assign name expr _) = wrap "Assign" id $ joinPair name expr
     scalashow (Identifier i _) = scalashow i
+    scalashow (Closure _ arg t expr ret _) = wrap "Closure" (joined ",") (scalashow arg: scalashow t: scalashow expr: (maybe id ((:) . scalashow) ret) [])
     scalashow other = error $ "No pattern for scalashow "++show other
 
 
