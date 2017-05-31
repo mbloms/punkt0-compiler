@@ -138,11 +138,6 @@ getType :: Expression -> TType
 getType (Typed t _) = t
 getType _ = error "Internal error: all expressions should have type when calling getType"
 
---assertUnit :: Expression -> Analyze ()
---assertUnit e = case getType e of
---    TUnit -> pure ()
---    _ -> report1 (TypeError (UnbalancedIf (position e)))
-
 typecheckExpression :: Environment -> Expression -> Analyze Expression
 typecheckExpression env (e@Typed _ _) = pure e
 typecheckExpression env (Closure free x t expr pos)
@@ -199,15 +194,6 @@ typecheckExpression env (Block exprs pos)
     where
         check = toEither (traverse (typecheckExpression env) exprs)
             >>= \es -> toEither $ fmap Typed (exprType env $ last es) <*> pure (Block es pos)
---typecheckExpression env (If predicate body Nothing pos)
---    = toAccumulate check
---    where
---        check = toEither (typecheckExpression env predicate)
---            >>= \predicate' -> toEither (unify env pos (getType predicate') TBool)
---            >>= \_ -> toEither (typecheckExpression env body)
---            >>= \body' -> assertUnit body'
---            *>  pure $ Typed TUnit (If predicate' body' Nothing pos)
-
 typecheckExpression env (If predicate body Nothing pos)
     = typecheckExpression env (If predicate body (Just (Block [] (pos))) pos)
 
