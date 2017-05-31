@@ -1,0 +1,133 @@
+module punkt0.expression.ExpressionF where
+import punkt0.parser.Grammar
+import punkt0.Positioned
+import Data.HashMap
+import Data.Monoid
+
+data ExpressionF a
+    = BinOpF {lhs :: a, op :: BinOp, rhs :: a, pos :: Position}
+    | MethodCallF a Identifier [a] Position
+    | IdentifierF {id :: Identifier, pos :: Position}
+    | LitIntF Int Position
+    | LitStringF String Position
+    | LitTrueF Position
+    | LitFalseF Position
+    | LitThisF Position
+    | LitNullF Position
+    | NewF {obj ::Identifier, pos :: Position}
+    | NotF {expr :: a, pos :: Position}
+    | BlockF [a] Position
+    | IfF { predicate :: a , body :: a , elseBody :: Maybe a , pos :: Position }
+    | WhileF {predicate :: a, body :: a, pos :: Position}
+    | PrintlnF {expr :: a, pos :: Position}
+    | AssignF {var :: Identifier, expr :: a, pos :: Position}
+    | LambdaF Identifier Type a Position
+    | ClosureF (HashMap Identifier ()) Identifier Type a Position
+
+instance Functor ExpressionF where
+    fmap f (e@BinOpF lhs op rhs pos) = BinOpF (f lhs) op (f rhs) pos
+    fmap f (MethodCallF e name es pos) = MethodCallF (f e) name (fmap f es) pos
+    fmap f (NotF {expr, pos}) = NotF (f expr)  pos
+    fmap f (BlockF es pos) = BlockF (fmap f es) pos
+    fmap f (IfF p b e pos) = IfF (f p) (f b) (fmap f e) pos
+    fmap f (WhileF p b pos) = WhileF (f p) (f b) pos
+    fmap f (AssignF var expr pos) = AssignF var (f expr) pos
+    fmap f (LambdaF x t expr pos) = LambdaF x t (f expr) pos
+    fmap f (ClosureF free x t expr pos) = ClosureF free x t (f expr) pos
+    fmap _ (IdentifierF {id, pos}) = IdentifierF id pos
+    fmap _ (LitIntF n pos) = LitIntF n pos
+    fmap _ (LitStringF s pos) = LitStringF s pos
+    fmap _ (LitTrueF pos) = LitTrueF pos
+    fmap _ (LitFalseF pos) = LitFalseF pos
+    fmap _ (LitThisF pos) = LitThisF pos
+    fmap _ (LitNullF pos) = LitNullF pos
+    fmap _ (NewF {obj, pos}) = NewF obj pos
+
+projectExpr :: Expression -> ExpressionF Expression
+projectExpr (BinOp {lhs, op, rhs, pos}) = BinOpF lhs op rhs pos
+projectExpr (MethodCall e id args pos) = MethodCallF e id args pos
+projectExpr (LitInt n pos) = LitIntF n pos
+projectExpr (LitString s pos) = LitStringF s pos
+projectExpr (LitTrue pos) = LitTrueF pos
+projectExpr (LitFalse pos) = LitFalseF pos
+projectExpr (Identifier {id, pos}) = IdentifierF id pos
+projectExpr (LitThis pos) = LitThisF pos
+projectExpr (LitNull pos) = LitNullF pos
+projectExpr (New {obj, pos}) = NewF obj pos
+projectExpr (Not {expr, pos}) = NotF expr pos
+projectExpr (Block es pos) = BlockF es pos
+projectExpr (If { predicate, body, elseBody, pos }) = IfF predicate body elseBody pos
+projectExpr (While {predicate, body, pos}) = WhileF predicate body pos
+projectExpr (Println {expr, pos}) = PrintlnF expr pos
+projectExpr (Assign {var, expr, pos}) = AssignF var expr pos
+projectExpr (Lambda x t expr pos) = LambdaF x t expr pos
+projectExpr (Closure free x t expr pos) = ClosureF free x t expr pos
+
+injectExpr :: ExpressionF Expression -> Expression
+injectExpr (BinOpF {lhs, op, rhs, pos}) = BinOp lhs op rhs pos
+injectExpr (MethodCallF e id args pos) = MethodCall e id args pos
+injectExpr (LitIntF n pos) = LitInt n pos
+injectExpr (LitStringF s pos) = LitString s pos
+injectExpr (LitTrueF pos) = LitTrue pos
+injectExpr (LitFalseF pos) = LitFalse pos
+injectExpr (IdentifierF {id, pos}) = Identifier id pos
+injectExpr (LitThisF pos) = LitThis pos
+injectExpr (LitNullF pos) = LitNull pos
+injectExpr (NewF {obj, pos}) = New obj pos
+injectExpr (NotF {expr, pos}) = Not expr pos
+injectExpr (BlockF es pos) = Block es pos
+injectExpr (IfF { predicate, body, elseBody, pos }) = If predicate body elseBody pos
+injectExpr (WhileF {predicate, body, pos}) = While predicate body pos
+injectExpr (PrintlnF {expr, pos}) = Println expr pos
+injectExpr (AssignF {var, expr, pos}) = Assign var expr pos
+injectExpr (LambdaF x t expr pos) = Lambda x t expr pos
+injectExpr (ClosureF free x t expr pos) = Closure free x t expr pos
+
+cataExpr :: (ExpressionF a -> a) -> Expression -> a
+cataExpr algebra = algebra . fmap (cataExpr algebra) . projectExpr
+
+paraExpr :: (ExpressionF (Expression, a) -> a) -> Expression -> a
+paraExpr algebra = algebra . fmap (\expr -> (expr, paraExpr algebra expr)) . projectExpr
+
+transformExpressionsVar :: (Expression -> Expression) -> VarDeclaration -> VarDeclaration
+transformExpressionsVar f (v@Var{expr}) = v.{expr=f expr}
+
+transformExpressionsMethod :: (Expression -> Expression) -> MethodDeclaration -> MethodDeclaration
+transformExpressionsMethod f (m@MethodDeclaration{vars,exprs})
+    = m.{exprs = fmap f exprs
+    , vars = fmap (transformExpressionsVar f) vars}
+
+transformExpressionsClass :: (Expression -> Expression) -> ClassDeclaration -> ClassDeclaration
+transformExpressionsClass f (c@Class{vars,methods})
+    = c.{vars=fmap (transformExpressionsVar f) vars
+    , methods = fmap (transformExpressionsMethod f) methods}
+
+transformExpressionsMain :: (Expression -> Expression) -> MainDeclaration -> MainDeclaration
+transformExpressionsMain f (m@Main{vars, body}) =
+    m.{vars = fmap (transformExpressionsVar f) vars
+    , body = fmap f body}
+
+transformExpressions :: (Expression -> Expression) -> Program -> Program
+transformExpressions f (Program classes main pos)
+    = Program (fmap (transformExpressionsClass f) classes) (transformExpressionsMain f main) pos
+
+
+collectVar :: Monoid a => (Expression -> a) -> VarDeclaration -> a
+collectVar f (Var{expr}) = f expr
+
+collectMethod :: Monoid a => (Expression -> a) -> MethodDeclaration -> a
+collectMethod f (MethodDeclaration{vars,exprs})
+    = mconcat (fmap (collectVar f) vars) <> mconcat (fmap f exprs)
+
+collectClass :: Monoid a => (Expression -> a) -> ClassDeclaration -> a
+collectClass f (Class{vars,methods})
+    = mconcat (fmap (collectVar f) vars) <> mconcat (fmap (collectMethod f) methods)
+
+collectMain :: Monoid a => (Expression -> a) -> MainDeclaration -> a
+collectMain f (Main{vars, body})
+    = mconcat (fmap (collectVar f) vars) <> mconcat (fmap f body)
+
+collectProgram :: Monoid a => (Expression -> a) -> Program -> a
+collectProgram f (Program classes main pos)
+    = mconcat (fmap (collectClass f) classes) <> collectMain f main
+

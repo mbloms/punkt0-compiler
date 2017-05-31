@@ -1,6 +1,7 @@
 module punkt0.analyzer.Symbols where
 import punkt0.parser.Grammar
 import punkt0.Typed
+import punkt0.expression.ExpressionF
 
 tagIds :: (WithId a, Typed a) => (Int -> SymbolType) -> Int -> [a] -> (Int, [a])
 tagIds symbolType symbol xs = (i' + symbol, xs')
@@ -9,80 +10,76 @@ tagIds symbolType symbol xs = (i' + symbol, xs')
         l = length xs
         tagId i c = setId (Symbol (symbol+i) (symbolType i) (typeOf c) (idOf c)) c
 
-createExpressionSymbols :: Int -> Expression -> (Int, Expression)
-createExpressionSymbols symbol (Closure free arg t expr pos)
-    = let
-        (j, expr') = createExpressionSymbols symbol expr
-    in (j+1, Closure free (Symbol (j+1) LambdaSymbol (ttype t) arg) t expr' pos)
-createExpressionSymbols symbol (Identifier i pos)
-    = (symbol, Identifier i pos)
-createExpressionSymbols symbol (New i pos)
-    = (symbol, New i pos)
-createExpressionSymbols symbol (BinOp lhs op rhs pos)
-    = let
-        (j, lhs') = createExpressionSymbols symbol lhs
-        (k, rhs') = createExpressionSymbols j rhs
-    in (k, BinOp lhs' op rhs' pos)
-createExpressionSymbols symbol (MethodCall expr name args pos)
-    = let
-        (j, expr') = createExpressionSymbols symbol expr
-        (k, args') = symbolManyExprs j args
-    in (k, MethodCall expr' name args' pos)
-createExpressionSymbols symbol (Not expr pos)
-    = let
-        (j, expr') = createExpressionSymbols symbol expr
-    in (j, Not expr' pos)
-createExpressionSymbols symbol (Block exprs pos)
-    = let
-        (j, exprs') = symbolManyExprs symbol exprs
-    in (j, Block exprs' pos)
-createExpressionSymbols symbol (Println expr pos)
-    = let
-        (j, expr') = createExpressionSymbols symbol expr
-    in (j, Println expr' pos)
-createExpressionSymbols symbol (Assign var expr pos)
-    = let
-        (j, expr') = createExpressionSymbols symbol expr
-    in (j, Assign var expr' pos)
-createExpressionSymbols symbol (If p body Nothing pos)
-    = let
-        (j, p') = createExpressionSymbols symbol p
-        (k, body') = createExpressionSymbols j body
-    in (k, If p' body' Nothing pos)
-createExpressionSymbols symbol (If p body (Just elseBody) pos)
-    = let
-        (j, p') = createExpressionSymbols symbol p
-        (k, body') = createExpressionSymbols j body
-        (l, elseBody') = createExpressionSymbols k elseBody
-    in (l, If p' body' (Just elseBody') pos)
-createExpressionSymbols symbol (While p body pos)
-    = let
-        (j, p') = createExpressionSymbols symbol p
-        (k, body') = createExpressionSymbols j body
-    in (k, While p' body' pos)
-createExpressionSymbols symbol (e@LitInt{}) = (symbol, e)
-createExpressionSymbols symbol (e@LitString{}) = (symbol, e)
-createExpressionSymbols symbol (e@LitThis{}) = (symbol, e)
-createExpressionSymbols symbol (e@LitNull{}) = (symbol, e)
-createExpressionSymbols symbol (e@LitTrue{}) = (symbol, e)
-createExpressionSymbols symbol (e@LitFalse{}) = (symbol, e)
-createExpressionSymbols symbol (e@Typed{}) = error "should have no Typed in symbol tagging"
+type State s t = s -> t -> (s, t)
+type Env r t = r -> (r, t)
 
-symbolManyExprs :: Int -> [Expression] -> (Int, [Expression])
+createExpressionSymbols :: State Int Expression
+createExpressionSymbols symbol expr = cataExpr alg expr symbol where
+    alg :: ExpressionF (Env Int Expression) -> (Env Int Expression)
+    alg (IdentifierF i pos) symbol = (symbol, Identifier i pos)
+    alg (NewF i pos) symbol = (symbol, New i pos)
+    alg (LitIntF n pos) symbol =  (symbol, LitInt n pos)
+    alg (LitStringF s pos) symbol = (symbol, LitString s pos)
+    alg (LitThisF pos) symbol = (symbol, LitThis pos)
+    alg (LitNullF pos) symbol = (symbol, LitThis pos)
+    alg (LitTrueF pos) symbol = (symbol, LitTrue pos)
+    alg (LitFalseF pos) symbol = (symbol, LitFalse pos)
+    alg (BinOpF lhs op rhs pos) symbol = let
+        (j, lhs') = lhs symbol
+        (k, rhs') = rhs j
+        in (k, BinOp lhs' op rhs' pos)
+    alg (MethodCallF expr name args pos) symbol = let
+        (j, expr') = expr symbol
+        (k, args') = applyMany j args
+        in (k, MethodCall expr' name args' pos)
+    alg (NotF expr pos) symbol = let
+        (j, expr') = expr symbol
+        in (j, Not expr' pos)
+    alg (BlockF exprs pos) symbol = let
+        (j, exprs') = applyMany symbol exprs
+        in (j, Block exprs' pos)
+    alg (PrintlnF expr pos) symbol = let
+        (j, expr') = expr symbol
+        in (j, Println expr' pos)
+    alg (AssignF var expr pos) symbol = let
+        (j, expr') = expr symbol
+        in (j, Assign var expr' pos)
+    alg (IfF p body Nothing pos) symbol = let
+        (j, p') = p symbol
+        (k, body') = body j
+        in (k, If p' body' Nothing pos)
+    alg (IfF p body (Just elseBody) pos) symbol = let
+        (j, p') = p symbol
+        (k, body') = body j
+        (l, elseBody') = elseBody k
+        in (l, If p' body' (Just elseBody') pos)
+    alg (WhileF p body pos) symbol = let
+        (j, p') = p symbol
+        (k, body') = body j
+        in (k, While p' body' pos)
+    alg (ClosureF free x t expr pos) symbol = error "Should have no closures when generating symbols"
+    alg (LambdaF x t expr pos) symbol = let
+        (j, expr') = expr symbol
+        k = j+1
+        in (k, Lambda (Symbol k LambdaSymbol (ttype t) x) t expr' pos)
+    where
+        applyMany symbol = foldr (\a (i,as) -> let (i', a') = a i in (i', a' : as)) (symbol, [])
+
+symbolManyExprs :: State Int [Expression]
 symbolManyExprs symbol exprs = foldr step (symbol, []) exprs
     where
         step e (i, es) = let
             (j, e') = createExpressionSymbols i e
             in (j, e' : es)
 
-createSymbolsVars :: (Int -> SymbolType) -> Int -> [VarDeclaration] -> (Int, [VarDeclaration])
+createSymbolsVars :: (Int -> SymbolType) -> State Int [VarDeclaration]
 createSymbolsVars tagger symbol vars = let
     (j, vars') = tagIds tagger symbol vars
     exprs = fmap (\var -> var.expr) vars'
     (k, exprs') = symbolManyExprs j exprs
     in (k, zipWith (\var expr -> var.{expr=expr}) vars' exprs')
 
-createSymbolsMethod :: Int -> MethodDeclaration -> (Int, MethodDeclaration)
+createSymbolsMethod :: State Int MethodDeclaration
 createSymbolsMethod symbol (m@MethodDeclaration{args,vars,exprs})
     = (j, m.{args=args',vars=vars',exprs=exprs'})
     where
@@ -91,7 +88,7 @@ createSymbolsMethod symbol (m@MethodDeclaration{args,vars,exprs})
         (j, vars') = createSymbolsVars (\l -> LocalSymbol LocalVar (a+l+1)) i vars
         (k, exprs') = symbolManyExprs j exprs
 
-createSymbolsClass :: Int -> ClassDeclaration -> (Int, ClassDeclaration)
+createSymbolsClass :: State Int ClassDeclaration
 createSymbolsClass symbol (Class name extends vars methods pos)
     = (k, Class name extends vars' methods'' pos)
     where
@@ -101,7 +98,7 @@ createSymbolsClass symbol (Class name extends vars methods pos)
         (k, methods'') = createSymbolsNested createSymbolsMethod j methods'
         createClass vs (k,ms) = (k, Class name extends vs ms pos)
 
-createSymbolsNested :: (Int -> a -> (Int, a)) -> Int -> [a] -> (Int, [a])
+createSymbolsNested :: State Int a -> State Int [a]
 createSymbolsNested nested symbol xs = createSymbolsNested' symbol xs []
     where
         createSymbolsNested' i [] acc = (i, reverse acc)
@@ -109,7 +106,7 @@ createSymbolsNested nested symbol xs = createSymbolsNested' symbol xs []
             = let (i', c') = nested i c
             in createSymbolsNested' i' cs (c':acc)
 
-createSymbolsMain :: Int -> MainDeclaration -> (Int, MainDeclaration)
+createSymbolsMain :: State Int MainDeclaration
 createSymbolsMain symbol (main@Main{vars}) =
     (j, main.{vars=vars'})
     where

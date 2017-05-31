@@ -279,11 +279,10 @@ data Expression
     | Println {expr :: Expression, pos :: Position}
     | Assign {var :: Identifier, expr :: Expression, pos :: Position}
     | Typed {t :: TType, expr :: Expression}
+    | Lambda Identifier Type Expression Position
     | Closure (HashMap Identifier ()) Identifier Type Expression Position
 derive Eq Expression
 derive Show Expression
-
-data Lambda = Lambda Identifier Type Expression Position
 
 instance Typed (Identifier, Type) where
     typeOf (_, t) = ttype t
@@ -408,46 +407,7 @@ simpleexpression =
             typ <- typeParser
             _ <- token Tokens.Dot
             e <- expression
-            return $ lambdaToClosure $ Lambda arg typ e l.position
-
-lambdaToClosure :: Lambda -> Expression
-lambdaToClosure (Lambda arg typ e pos) = Closure (freeVars e `difference` boundArg) arg typ e pos
-    where
-        boundArg = fromList [(arg, ())]
-
-freeVars :: Expression -> HashMap Identifier ()
-freeVars (Identifier i pos)
-    = fromList [(i, ())]
-freeVars (New i pos)
-    = fromList [(i, ())]
-freeVars (BinOp lhs op rhs pos)
-    = freeVars lhs `union` freeVars rhs
-freeVars (MethodCall expr name args pos)
-    = freeVars expr `difference` bound
-    where
-        bound = unions (fmap freeVars args)
-freeVars (Not expr pos)
-    = freeVars expr
-freeVars (Block exprs pos)
-    = unions (fmap freeVars exprs)
-freeVars (Println expr pos)
-    = freeVars expr
-freeVars (Assign var expr pos)
-    = freeVars expr
-freeVars (If p body Nothing pos)
-    = unions [freeVars p, freeVars body]
-freeVars (If p body (Just elseBody) pos)
-    = unions [freeVars p, freeVars body, freeVars elseBody]
-freeVars (While p body pos)
-    = freeVars p `union` freeVars body
-freeVars LitInt{} =  empty
-freeVars LitString{} = empty
-freeVars LitThis{} = empty
-freeVars LitNull{} = empty
-freeVars LitTrue{} = empty
-freeVars LitFalse{} = empty
-freeVars Typed{expr} = freeVars expr
-freeVars (Closure free _ _ _ _) = free
+            return $ Lambda arg typ e l.position
 
 wrap :: String -> (a -> String) -> a -> String
 wrap prefix f x = prefix ++ "(" ++ f x ++ ")"

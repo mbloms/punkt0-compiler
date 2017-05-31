@@ -9,11 +9,12 @@ import punkt0.analyzer.Symbols
 import punkt0.analyzer.Names
 import punkt0.analyzer.Types
 import punkt0.analyzer.TypeCheck
+import punkt0.analyzer.LambdaLift(closureConvert)
 
 analyzer program
     = toEither (checkDependencies program)
     >>= \inheritance -> toEither (analyzeNames (createSymbols program))
-    >>= \(interfaces, program') -> toEither (typecheck (inheritance, interfaces, Nothing) program')
+    >>= \(interfaces, program') -> toEither (typecheck (inheritance, interfaces, Nothing) (closureConvert program'))
     -- >>= \(interfaces, program') -> pure program'
     -- >>= \env -> toEither ())
     -- >>= \interfaces -> toEither (typecheck (env.{interfaces=interfaces}) program')
