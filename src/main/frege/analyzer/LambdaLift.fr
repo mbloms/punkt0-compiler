@@ -37,9 +37,9 @@ freeVars = cataExpr alg where
     alg (ClosureF free _ _ _ _) = free
     alg (LambdaF x t expr _) = expr `difference` (fromList [(x, ())])
 
--- λx : Int. λy : Int. x + y
--- λx : Int. λy : Int. x + y [λy : Int. x + y]
--- λx : Int. λy : Int. x + y [λy : Int. x + y, λx : Int. λy : Int. x + y]
+--  λx : Int. λy : Int. (x + y) []
+--  λx : Int. (λy : Int. x + y) [λy : Int. x + y]
+-- (λx : Int. λy : Int. x + y) [λy : Int. x + y, λx : Int. λy : Int. x + y]
 
 lambdaLift :: Expression -> [Expression]
 lambdaLift = paraExpr alg where
