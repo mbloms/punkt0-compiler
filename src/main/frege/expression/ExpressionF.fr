@@ -36,16 +36,16 @@ data ExpressionF a
               }
 
 instance Functor ExpressionF where
-    fmap f (e@BinOpF lhs op rhs pos) = BinOpF (f lhs) op (f rhs) pos
+    fmap f (BinOpF lhs op rhs pos) = BinOpF (f lhs) op (f rhs) pos
     fmap f (MethodCallF e name es pos) = MethodCallF (f e) name (fmap f es) pos
     fmap f (NotF {expr, pos}) = NotF (f expr)  pos
+    fmap f (PrintlnF {expr,pos}) = PrintlnF (f expr) pos
     fmap f (BlockF es pos) = BlockF (fmap f es) pos
     fmap f (IfF p b e pos) = IfF (f p) (f b) (fmap f e) pos
     fmap f (WhileF p b pos) = WhileF (f p) (f b) pos
     fmap f (AssignF var expr pos) = AssignF var (f expr) pos
-    fmap f (LambdaF x t expr r pos) = LambdaF x t (f expr) r pos
-    fmap f (ClosureF free x t expr r pos) = ClosureF free x t (f expr) r pos
-    fmap f (PrintlnF expr pos) = PrintlnF (f expr) pos
+    fmap f (LambdaF x t expr pos) = LambdaF x t (f expr) pos
+    fmap f (ClosureF free x t expr pos) = ClosureF free x t (f expr) pos
     fmap _ (IdentifierF {id, pos}) = IdentifierF id pos
     fmap _ (LitIntF n pos) = LitIntF n pos
     fmap _ (LitStringF s pos) = LitStringF s pos

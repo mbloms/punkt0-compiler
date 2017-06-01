@@ -54,10 +54,7 @@ greatestLowerType (env@(supers, interfaces, className)) pos (TClass c) (TClass d
                 ALeft _ -> ARight TBottomRef -- null inhabits all classes
                 result -> result
         result -> result
-greatestLowerType env pos (TClass c) TAnyRef = pure (TClass c)
-greatestLowerType env pos TAnyRef (TClass c) = pure (TClass c)
-greatestLowerType env pos (TClass c) TBottomRef = pure TBottomRef
-greatestLowerType env pos TBottomRef (TClass c) = pure TBottomRef
+greatestLowerType env pos a b = unify env pos a b <|> unify env pos b a
 
 -- Get the type that is the most specific
 -- common type between the two types
