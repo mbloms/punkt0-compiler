@@ -352,6 +352,8 @@ instance Positioned Expression where
     position (While _ _ pos) = pos
     position (Println _ pos) = pos
     position (Assign _ _ pos) = pos
+    position (Lambda{pos}) = pos
+    position (Closure{pos}) = pos
 
 
 binOp :: Parser Lex Expression -> Parser Lex BinOp -> Parser Lex Expression
@@ -572,6 +574,7 @@ instance ScalaShow Type where
     scalashow String = "StringType()"
     scalashow Unit = "UnitType()"
     scalashow (User x) = scalashow x
+    scalashow (Arrow t r) = wrap "Arrow" (joined ",") [scalashow t, scalashow r]
 
 parseCode parser code =
     let
