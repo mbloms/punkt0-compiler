@@ -13,6 +13,7 @@ data Environment = Env
     { classes :: HashMap String Identifier
     , methods :: HashMap String Identifier
     , vars    :: HashMap String Identifier
+    , lambdaVar :: Maybe (String, Identifier)
     }
 derive Show Environment
 
@@ -82,11 +83,21 @@ interfaces classes = result
         iface (cls@(Class _ Nothing _ _ _))
             = ifaceWhere (empty, empty, empty) cls
 
+lookupLambdaVar :: Environment -> String -> Analyze Identifier
+lookupLambdaVar Env{lambdaVar=Nothing} _ = ALeft []
+lookupLambdaVar Env{lambdaVar=Just (name, id)} x
+    | x == name = ARight id
+    | otherwise = ALeft []
+
 lookupVar :: Environment -> Identifier -> Analyze Identifier
 lookupVar env (sym@(Symbol{})) = pure sym -- already a symbol, do not update
-lookupVar env (ID var pos)
+lookupVar (env@Env{lambdaVar=Nothing}) (ID var pos)
     = maybe (report1 $ NotDeclared var pos) pure (lookup var env.vars)
-
+lookupVar (env@Env{lambdaVar=Just (x,innerLambda)}) (ID var pos)
+    = lookupLambdaVar env (nameOf var)
+    <|> ( FreeSymbol innerLambda
+        <$> maybe (report1 $ NotDeclared var pos) pure (lookup var env.vars)
+        )
 lookupMethod :: Environment -> Identifier -> Analyze Identifier
 lookupMethod env (sym@(Symbol{})) = pure sym -- already a symbol, do not update
 lookupMethod env (ID var pos)
@@ -125,7 +136,7 @@ analyzeExpr _ (e@LitNull{}) = pure e
 analyzeExpr _ (e@LitTrue{}) = pure e
 analyzeExpr _ (e@LitFalse{}) = pure e
 analyzeExpr _ (e@Typed{}) = pure e
-analyzeExpr env (Closure free arg t expr r pos)
+analyzeExpr env (Closure free (arg@Symbol{}) t expr r pos)
     = case freeCheck of
         ALeft errors -> ALeft errors
         ARight free' -> (ARight $ Closure (fromList free') arg t) <*> expr' <*> pure r <*> pure pos
@@ -138,7 +149,7 @@ analyzeExpr env (Closure free arg t expr r pos)
         freeCheck = fmap (filter nonFunction) (traverse lookupFree (each free))
         nonFunction ((Symbol _ FunctionSymbol _ _), ()) = false
         nonFunction _ = true
-        env' = env.{vars= insert (nameOf arg) arg env.vars}
+        env' = env.{vars= insert (nameOf arg) arg env.vars, lambdaVar = Just (nameOf arg, arg.{symType=LocalSymbol Param 1})}
         expr' = analyzeExpr env' expr
 
 analyzeAssign :: Identifier -> Analyze ()
@@ -210,7 +221,7 @@ analyzeNames' interfaces (Program classes functions main pos)
     where
         classNames = namedMap (fmap idOf classes)
         functionNames = namedMap (fmap idOf functions)
-        env = Env {classes = classNames, methods = empty, vars = functionNames}
+        env = Env {classes = classNames, methods = empty, vars = functionNames, lambdaVar = Nothing}
 
 --- | Analyze names and replace identifiers
 --- | with their bound symbols.
@@ -221,6 +232,6 @@ analyzeNames (program@Program classes functions main pos)
             where
                 classNames = namedMap (fmap idOf classes)
                 functionNames = namedMap (fmap idOf functions)
-                env = Env {classes = classNames, methods = empty, vars = functionNames}
+                env = Env {classes = classNames, methods = empty, vars = functionNames, lambdaVar = Nothing}
         ARight result -> fmap (\p -> (result, p)) $ analyzeNames' result program
 

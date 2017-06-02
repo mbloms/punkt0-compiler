@@ -83,6 +83,9 @@ data ScalaInvokeSpecial = native "cafebabe.AbstractByteCodes$InvokeSpecial$" whe
 data ScalaNew = native "cafebabe.AbstractByteCodes$DefaultNew$" where
     pure native apply "cafebabe.AbstractByteCodes.DefaultNew$.MODULE$.apply" :: String -> CodeGenerator
 
+data ScalaCreateNew = native "cafebabe.AbstractByteCodes$New$" where
+    pure native apply "cafebabe.AbstractByteCodes.New$.MODULE$.apply" :: String -> CodeGenerator
+
 data ScalaLabel = native "cafebabe.AbstractByteCodes$Label$" where
     pure native apply "cafebabe.AbstractByteCodes.Label$.MODULE$.apply" :: String -> ByteCode
 
@@ -161,6 +164,7 @@ javaType TBool = "Z"
 javaType (TClass c) = "L" ++ c ++ ";"
 javaType TUnit = "V"
 javaType (TArrow t r) = "L"++ superFunction t r ++ ";"
+javaType TAnyRef = "Ljava/lang/Object;"
 
 data Gen
     = Gen CodeGenerator
@@ -177,9 +181,10 @@ getScalaI (PushStr s) = Gen $ ScalaPush.apply s
 getScalaI (GetStatic c m t) = Gen $ ScalaGetStatic.apply c m (javaType t)
 getScalaI (GetField c m t) = Gen $ ScalaGetField.apply c m (javaType t)
 getScalaI (PutField c m t) = Gen $ ScalaPutField.apply c m (javaType t)
-getScalaI (Invoke c m t) = Gen $ ScalaInvoke.apply c m (javaType t)
-getScalaI (InvokeSpecial c m t) = Gen $ ScalaInvokeSpecial.apply c m (javaType t)
+getScalaI (Invoke c m t) = Gen $ ScalaInvoke.apply c m (javaType . functionArgType $ t)
+getScalaI (InvokeSpecial c m t) = Gen $ ScalaInvokeSpecial.apply c m (javaType . functionArgType $ t)
 getScalaI (DefaultNew c) = Gen $ ScalaNew.apply c
+getScalaI (CreateNew c) = Gen $ ScalaCreateNew.apply c
 getScalaI (Label label) = Code $ ScalaLabel.apply label
 getScalaI (Goto label) = Code $ ScalaGoto.apply label
 getScalaI (IfNe elseLabel) = Code $ ScalaIfNe.apply elseLabel

@@ -249,6 +249,7 @@ derive Eq SymbolType
 data Identifier
     = ID {str :: String, pos :: Position}
     | Symbol{id :: Int, symType :: SymbolType, t :: TType, name :: Identifier}
+    | FreeSymbol { innerLambda :: Identifier, name :: Identifier}
 derive Show Identifier
 instance JSON.ToJSON Identifier where
     toJSON = JSON.String . show
@@ -257,10 +258,13 @@ instance Eq Identifier where
     (ID a _) == (ID b _) = a == b
     (Symbol _ _ _ a) == (Symbol _ _ _ b) = a == b
     (Symbol _ _ _ a) == (b@(ID _ _)) = a == b
+    (FreeSymbol{name=a}) == b = a == b
+    a == (FreeSymbol{name=b}) = a == b
     (a@(ID _ _)) == (Symbol _ _ _ b) = a == b
 
     hashCode (ID a _) = hashCode a
     hashCode (Symbol _ _ _ a) = hashCode a
+    hashCode (FreeSymbol{name}) = hashCode name
 
 instance Ord Identifier where
     (ID a _) <=> (ID b _) = a <=> b
@@ -622,6 +626,7 @@ instance Named String where
 instance Named Identifier where
     nameOf (ID n _) = n
     nameOf (Symbol _ _ _ id) = nameOf id
+    nameOf (FreeSymbol{name}) = nameOf name
 
 instance Named ClassDeclaration where
     nameOf (Class{name=id}) = nameOf id

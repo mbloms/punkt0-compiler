@@ -85,6 +85,7 @@ applyUnify env pos t _ = report1 $ TypeError $ CallOnNonMethod t pos
 
 lookupType :: Environment -> Identifier -> TType
 lookupType env (Symbol _ _ t _) = t
+lookupType env (FreeSymbol {name}) = lookupType env name
 lookupType env (i@ID _ _) = error $ "Internal error: All identifier must be symbols in typechecker" ++ show i
 
 exprType :: Environment -> Expression -> Analyze TType
