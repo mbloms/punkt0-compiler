@@ -153,12 +153,15 @@ analyzeVar env (var@Var{expr,varType,pos}) = typeExists *> case expr of
     LitFalse{} -> pure var
     LitNull{} -> pure var
     New{} -> fmap (var.{expr=}) (analyzeExpr env expr)
+    (Identifier i pos) -> case lookupVar env i of
+        ARight (i'@Symbol _ FunctionSymbol _ _) -> pure var.{expr=Identifier i' pos}
+        ALeft errors -> ALeft errors
+        _ -> report1 $ NonConstantDeclaration pos
     Closure{free} ->
         if null free
             then pure var
             else report1 (NonConstantDeclaration (position expr))
-    _ | traceLn (show expr) -> undefined
-      | otherwise -> report1 (NonConstantDeclaration (position expr))
+    _ -> report1 (NonConstantDeclaration (position expr))
     where
         typeExists = case varType of
             (User c) -> lookupClass env c *> pure ()
@@ -177,7 +180,7 @@ analyzeMethod env (m@MethodDeclaration{vars,args,exprs})
 analyzeClass :: Interfaces -> Environment -> ClassDeclaration -> Analyze ClassDeclaration
 analyzeClass interfaces env (Class name extends vars methods pos)
     = fmap (Class name extends)
-        (traverse (analyzeVar env') vars)
+        (traverse (analyzeVar env) vars)
         <*> (traverse (analyzeMethod env') methods)
         <*> pure pos
     where
@@ -189,7 +192,7 @@ analyzeMain env (m@Main{vars, body})
     = noDups declared
     *> fmap (\body vars -> m.{body=body,vars=vars})
         (traverse (analyzeExpr env') body)
-        <*> (traverse (analyzeVar env') vars)
+        <*> (traverse (analyzeVar env) vars)
     where
         declared = fmap idOf vars
         env' = env.{vars=namedMap declared `union` env.vars}
