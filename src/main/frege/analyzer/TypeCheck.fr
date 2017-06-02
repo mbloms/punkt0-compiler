@@ -108,15 +108,16 @@ methodType (supers, interfaces, className) name (Typed (TClass c) expr)
         methodType = fmap (\t -> (typeOf t, c)) method
 methodType env name expr = report1 $ TypeError $ NotAnObject (position expr)
 
-binOpType :: Position -> BinOp -> TType -> TType -> Analyze TType
-binOpType _ Plus TInt TInt = pure TInt
-binOpType _ Plus TString TInt = pure TString
-binOpType _ Plus TInt TString = pure TString
-binOpType _ Plus TString TString = pure TString
-binOpType _ Minus TInt TInt = pure TInt
-binOpType _ Times TInt TInt = pure TInt
-binOpType _ Div TInt TInt = pure TInt
-binOpType pos Equals a b = if a == b || (obj a && obj b)
+binOpType :: Environment -> Position -> BinOp -> TType -> TType -> Analyze TType
+binOpType env pos Apply (TArrow t r) t' = unify env pos t' t *> pure r
+binOpType _ _ Plus TInt TInt = pure TInt
+binOpType _ _ Plus TString TInt = pure TString
+binOpType _ _ Plus TInt TString = pure TString
+binOpType _ _ Plus TString TString = pure TString
+binOpType _ _ Minus TInt TInt = pure TInt
+binOpType _ _ Times TInt TInt = pure TInt
+binOpType _ _ Div TInt TInt = pure TInt
+binOpType _ pos Equals a b = if a == b || (obj a && obj b)
     then
         pure TBool
     else
@@ -126,10 +127,10 @@ binOpType pos Equals a b = if a == b || (obj a && obj b)
         obj TAnyRef = true
         obj TBottomRef = true
         obj _ = false
-binOpType _ LessThan TInt TInt = pure TBool
-binOpType _ And TBool TBool = pure TBool
-binOpType _ Or TBool TBool = pure TBool
-binOpType pos op t1 t2 = report1 $ TypeError $ InvalidOperands op t1 t2 pos
+binOpType _ _ LessThan TInt TInt = pure TBool
+binOpType _ _ And TBool TBool = pure TBool
+binOpType _ _ Or TBool TBool = pure TBool
+binOpType _ pos op t1 t2 = report1 $ TypeError $ InvalidOperands op t1 t2 pos
 
 getType :: Expression -> TType
 getType (Typed t _) = t
@@ -180,7 +181,7 @@ typecheckExpression env (BinOp lhs op rhs pos)
     where
         check = toEither (fmap (,) (typecheckExpression env lhs) <*> (typecheckExpression env rhs))
             >>= \(lhs', rhs') -> toEither (fmap (,) (exprType env lhs') <*> (exprType env rhs'))
-            >>= \(t1, t2) -> toEither (fmap Typed (binOpType pos op t1 t2) <*> pure (BinOp lhs' op rhs' pos))
+            >>= \(t1, t2) -> toEither (fmap Typed (binOpType env pos op t1 t2) <*> pure (BinOp lhs' op rhs' pos))
 typecheckExpression env (MethodCall expr name args pos)
     = toAccumulate check
     where
@@ -269,19 +270,20 @@ typecheckClass (supers, interfaces, className) (Class name extends vars methods 
 typecheckMain :: Environment -> MainDeclaration -> Analyze MainDeclaration
 typecheckMain env (Main name extends vars body pos)
     = checkExtends
-    *> fmap (Main name extends)
-        (traverse (typecheckVar env) vars)
-        <*> (traverse (typecheckExpression env) body)
-        <*> pure pos
+    *> (Main name extends
+        <$> traverse (typecheckVar env) vars
+        <*> traverse (typecheckExpression env) body
+        <*> pure pos)
     where
         checkExtends = if nameOf extends != "App"
             then report1 (TypeError (MustExtendApp pos))
             else pure ()
 
 typecheck :: Environment -> Program -> Analyze Program
-typecheck env (Program classes main pos)
-    = fmap Program
-        (traverse (typecheckClass env) classes)
+typecheck env (Program classes functions main pos)
+    = Program
+        <$> traverse (typecheckClass env) classes
+        <*> pure functions
         <*> typecheckMain env main
         <*> pure pos
 

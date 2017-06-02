@@ -105,6 +105,7 @@ data Keyword = Class
     | Var
     | Println
     | Lambda
+    | Fun
 derive Show Keyword
 derive Eq Keyword
 
@@ -112,6 +113,7 @@ keywords :: [(String, Keyword)]
 keywords = [ ("class", Class)
     , ("extends", Extends)
     , ("def", Def)
+    , ("fun", Fun)
     , ("override", Override)
     , ("object", Object)
     , ("new", New)

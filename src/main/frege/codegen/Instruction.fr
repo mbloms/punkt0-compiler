@@ -308,6 +308,6 @@ compileClass (Class{name,extends,vars,methods})
         , methods = fmap compileMethod methods
         }
 
-compileProgram (Program classes main _)
+compileProgram (Program classes functions main _)
     = ProgramCode (fmap compileClass classes, compileMain main)
 

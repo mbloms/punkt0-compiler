@@ -36,15 +36,50 @@ tokenType t = token (Tokens.Type t)
 
 tokenEOF = symbol (Lexeme.EOF undefined)
 
-data Program = Program [ClassDeclaration] MainDeclaration Position
+data Program = Program [ClassDeclaration] [FunctionDeclaration] MainDeclaration Position
 derive Eq Program
 derive Show Program
 
-toProgram [] main = Program [] main main.position
-toProgram (c:rest) main = Program (c:rest) main c.position
+data FunctionDeclaration
+    = Function {name :: Identifier, expr :: Expression, pos :: Position}
+derive Eq FunctionDeclaration
+derive Show FunctionDeclaration
+instance Positioned FunctionDeclaration where
+    position Function{pos} = pos
+
+instance Typed FunctionDeclaration where
+    typeOf Function{expr} = fnType expr
+        where
+            fnType (Lambda _ t expr (Just r) _) = TArrow (ttype t) (ttype r)
+            fnType (Lambda _ t expr Nothing _) = TArrow (ttype t) (fnType expr)
+            fnType _ = error "Cannot deduce type of function declaration" -- TODO turn into a nicer error
+
+toProgram [] main = Program [] [] main main.position
+toProgram (x:rest) main = Program classes functions main (posOf x)
+    where
+        (classes, functions) = partitionEithers (x:rest)
+        posOf (Left c) = position c
+        posOf (Right f) = position f
+
+functionDeclaration :: Parser Lex FunctionDeclaration
+functionDeclaration = do
+    fn <- tokenKey Tokens.Fun
+    name <- identifier
+    tokenOp Tokens.Assign
+    expr <- expression
+    optional (token Tokens.SemiColon)
+    return $ Function name expr fn.position
+
+partitionEithers :: [(a | b)] -> ([a], [b])
+partitionEithers = foldr partitionEither ([],[])
+    where
+        partitionEither (Left a) (as, bs) = (a:as,bs)
+        partitionEither (Right b) (as, bs) = (as, b:bs)
 
 program :: Parser Lex Program
-program = fmap toProgram (many classDeclaration) <*> mainDeclaration <* tokenEOF
+program = fmap toProgram classesAndFuns <*> mainDeclaration <* tokenEOF
+    where
+        classesAndFuns = many (fmap Left classDeclaration <|> fmap Right functionDeclaration)
 
 data ClassDeclaration = Class
     { name :: Identifier
@@ -207,6 +242,7 @@ data SymbolType
     | MethodSymbol String
     | LocalSymbol LocalType Int
     | LambdaSymbol
+    | FunctionSymbol
 derive Show SymbolType
 derive Eq SymbolType
 
@@ -443,7 +479,7 @@ instance ScalaShow Bool where
     scalashow = show
 
 instance ScalaShow Program where
-    scalashow (Program classes main _) = wrap "Program" (joined ",")
+    scalashow (Program classes functions main _) = wrap "Program" (joined ",")
         [ scalashow main
         , wrapList classes
         ]
@@ -490,9 +526,9 @@ instance ScalaShow Expression where
     scalashow (Println expr _) = wrap "Println" scalashow expr
     scalashow (Assign name expr _) = wrap "Assign" id $ joinPair name expr
     scalashow (Identifier i _) = scalashow i
-    scalashow (Closure _ arg t expr ret _) = wrap "Closure" (joined ",") 
+    scalashow (Closure _ arg t expr ret _) = wrap "Closure" (joined ",")
         (scalashow arg: scalashow t: scalashow expr: (maybe id ((:) . scalashow) ret) [])
-    scalashow (Lambda arg t expr ret _) = wrap "Closure" (joined ",") 
+    scalashow (Lambda arg t expr ret _) = wrap "Closure" (joined ",")
         (scalashow arg: scalashow t: scalashow expr: (maybe id ((:) . scalashow) ret) [])
     scalashow other = error $ "No pattern for scalashow "++show other
 
@@ -545,6 +581,10 @@ instance WithId Identifier where
 instance WithId ClassDeclaration where
     idOf (Class{name}) = name
     setId name c = c.{name=name}
+
+instance WithId FunctionDeclaration where
+    idOf Function{name} = name
+    setId name fn = fn.{name=name}
 
 instance WithId MethodDeclaration where
     idOf (MethodDeclaration{name}) = name

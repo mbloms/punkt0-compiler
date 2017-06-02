@@ -44,8 +44,8 @@ instance Functor ExpressionF where
     fmap f (IfF p b e pos) = IfF (f p) (f b) (fmap f e) pos
     fmap f (WhileF p b pos) = WhileF (f p) (f b) pos
     fmap f (AssignF var expr pos) = AssignF var (f expr) pos
-    fmap f (LambdaF x t expr pos) = LambdaF x t (f expr) pos
-    fmap f (ClosureF free x t expr pos) = ClosureF free x t (f expr) pos
+    fmap f (LambdaF x t expr r pos) = LambdaF x t (f expr) r pos
+    fmap f (ClosureF free x t expr r pos) = ClosureF free x t (f expr) r pos
     fmap _ (IdentifierF {id, pos}) = IdentifierF id pos
     fmap _ (LitIntF n pos) = LitIntF n pos
     fmap _ (LitStringF s pos) = LitStringF s pos
@@ -54,6 +54,63 @@ instance Functor ExpressionF where
     fmap _ (LitThisF pos) = LitThisF pos
     fmap _ (LitNullF pos) = LitNullF pos
     fmap _ (NewF {obj, pos}) = NewF obj pos
+
+cataExpr :: (ExpressionF a -> a) -> Expression -> a
+cataExpr algebra = algebra . fmap (cataExpr algebra) . projectExpr
+
+paraExpr :: (ExpressionF (Expression, a) -> a) -> Expression -> a
+paraExpr algebra = algebra . fmap (\expr -> (expr, paraExpr algebra expr)) . projectExpr
+
+transformExpressionsVar :: (Expression -> Expression) -> VarDeclaration -> VarDeclaration
+transformExpressionsVar f (v@Var{expr}) = v.{expr=f expr}
+
+transformExpressionsMethod :: (Expression -> Expression) -> MethodDeclaration -> MethodDeclaration
+transformExpressionsMethod f (m@MethodDeclaration{vars,exprs})
+    = m.{exprs = fmap f exprs
+    , vars = fmap (transformExpressionsVar f) vars}
+
+transformExpressionsClass :: (Expression -> Expression) -> ClassDeclaration -> ClassDeclaration
+transformExpressionsClass f (c@Class{vars,methods})
+    = c.{vars=fmap (transformExpressionsVar f) vars
+    , methods = fmap (transformExpressionsMethod f) methods}
+
+transformExpressionsMain :: (Expression -> Expression) -> MainDeclaration -> MainDeclaration
+transformExpressionsMain f (m@Main{vars, body}) =
+    m.{vars = fmap (transformExpressionsVar f) vars
+    , body = fmap f body}
+
+transformExpressionsFun :: (Expression -> Expression) -> FunctionDeclaration -> FunctionDeclaration
+transformExpressionsFun f (fn@Function{expr}) = fn.{expr=f expr}
+
+
+transformExpressions :: (Expression -> Expression) -> Program -> Program
+transformExpressions f (Program classes functions main pos)
+    = Program
+        (fmap (transformExpressionsClass f) classes)
+        (fmap (transformExpressionsFun f) functions)
+        (transformExpressionsMain f main)
+        pos
+
+
+collectVar :: Monoid a => (Expression -> a) -> VarDeclaration -> a
+collectVar f (Var{expr}) = f expr
+
+collectMethod :: Monoid a => (Expression -> a) -> MethodDeclaration -> a
+collectMethod f (MethodDeclaration{vars,exprs})
+    = mconcat (fmap (collectVar f) vars) <> mconcat (fmap f exprs)
+
+collectClass :: Monoid a => (Expression -> a) -> ClassDeclaration -> a
+collectClass f (Class{vars,methods})
+    = mconcat (fmap (collectVar f) vars) <> mconcat (fmap (collectMethod f) methods)
+
+collectMain :: Monoid a => (Expression -> a) -> MainDeclaration -> a
+collectMain f (Main{vars, body})
+    = mconcat (fmap (collectVar f) vars) <> mconcat (fmap f body)
+
+collectProgram :: Monoid a => (Expression -> a) -> Program -> a
+collectProgram f (Program classes functions main pos)
+    = mconcat (fmap (collectClass f) classes) <> collectMain f main
+
 
 projectExpr :: Expression -> ExpressionF Expression
 projectExpr (BinOp {lhs, op, rhs, pos}) = BinOpF lhs op rhs pos
@@ -94,52 +151,3 @@ injectExpr (PrintlnF {expr, pos}) = Println expr pos
 injectExpr (AssignF {var, expr, pos}) = Assign var expr pos
 injectExpr (LambdaF x t expr r pos) = Lambda x t expr r pos
 injectExpr (ClosureF free x t expr r pos) = Closure free x t expr r pos
-
-cataExpr :: (ExpressionF a -> a) -> Expression -> a
-cataExpr algebra = algebra . fmap (cataExpr algebra) . projectExpr
-
-paraExpr :: (ExpressionF (Expression, a) -> a) -> Expression -> a
-paraExpr algebra = algebra . fmap (\expr -> (expr, paraExpr algebra expr)) . projectExpr
-
-transformExpressionsVar :: (Expression -> Expression) -> VarDeclaration -> VarDeclaration
-transformExpressionsVar f (v@Var{expr}) = v.{expr=f expr}
-
-transformExpressionsMethod :: (Expression -> Expression) -> MethodDeclaration -> MethodDeclaration
-transformExpressionsMethod f (m@MethodDeclaration{vars,exprs})
-    = m.{exprs = fmap f exprs
-    , vars = fmap (transformExpressionsVar f) vars}
-
-transformExpressionsClass :: (Expression -> Expression) -> ClassDeclaration -> ClassDeclaration
-transformExpressionsClass f (c@Class{vars,methods})
-    = c.{vars=fmap (transformExpressionsVar f) vars
-    , methods = fmap (transformExpressionsMethod f) methods}
-
-transformExpressionsMain :: (Expression -> Expression) -> MainDeclaration -> MainDeclaration
-transformExpressionsMain f (m@Main{vars, body}) =
-    m.{vars = fmap (transformExpressionsVar f) vars
-    , body = fmap f body}
-
-transformExpressions :: (Expression -> Expression) -> Program -> Program
-transformExpressions f (Program classes main pos)
-    = Program (fmap (transformExpressionsClass f) classes) (transformExpressionsMain f main) pos
-
-
-collectVar :: Monoid a => (Expression -> a) -> VarDeclaration -> a
-collectVar f (Var{expr}) = f expr
-
-collectMethod :: Monoid a => (Expression -> a) -> MethodDeclaration -> a
-collectMethod f (MethodDeclaration{vars,exprs})
-    = mconcat (fmap (collectVar f) vars) <> mconcat (fmap f exprs)
-
-collectClass :: Monoid a => (Expression -> a) -> ClassDeclaration -> a
-collectClass f (Class{vars,methods})
-    = mconcat (fmap (collectVar f) vars) <> mconcat (fmap (collectMethod f) methods)
-
-collectMain :: Monoid a => (Expression -> a) -> MainDeclaration -> a
-collectMain f (Main{vars, body})
-    = mconcat (fmap (collectVar f) vars) <> mconcat (fmap f body)
-
-collectProgram :: Monoid a => (Expression -> a) -> Program -> a
-collectProgram f (Program classes main pos)
-    = mconcat (fmap (collectClass f) classes) <> collectMain f main
-

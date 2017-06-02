@@ -205,12 +205,12 @@ instance Arbitrary Program where
         = do
             main <- arbitrary :: Gen MainDeclaration
             classes <- resize 4 $ listOf arbitrary
-            return $ Program classes main initialPosition
-    shrink (Program classes main pos)
-        = [ Program [] main' pos
+            return $ Program classes [] main initialPosition
+    shrink (Program classes functions main pos)
+        = [ Program [] [] main' pos
           | main' <- shrink main
           ]
-          ++ [ Program classes' main' pos
+          ++ [ Program classes' [] main' pos
           | classes' <- shrinkList shrink classes
           , main' <- shrink main
           ]

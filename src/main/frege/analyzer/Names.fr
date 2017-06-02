@@ -14,6 +14,7 @@ data Environment = Env
     , methods :: HashMap String Identifier
     , vars    :: HashMap String Identifier
     }
+derive Show Environment
 
 namedMap :: (Named a) => [a] -> HashMap String a
 namedMap xs = fromList $ fmap (\x -> (nameOf x, x)) xs
@@ -134,7 +135,9 @@ analyzeExpr env (Closure free arg t expr r pos)
             ARight i' -> ARight (i', ())
             ALeft errors -> ALeft errors
         freeCheck :: Analyze [(Identifier, ())]
-        freeCheck = traverse lookupFree (each free)
+        freeCheck = fmap (filter nonFunction) (traverse lookupFree (each free))
+        nonFunction ((Symbol _ FunctionSymbol _ _), ()) = false
+        nonFunction _ = true
         env' = env.{vars= insert (nameOf arg) arg env.vars}
         expr' = analyzeExpr env' expr
 
@@ -189,26 +192,32 @@ analyzeMain env (m@Main{vars, body})
         <*> (traverse (analyzeVar env') vars)
     where
         declared = fmap idOf vars
-        env' = env.{vars=namedMap declared}
+        env' = env.{vars=namedMap declared `union` env.vars}
+
+analyzeFun env (fn@Function{expr}) = fmap (fn.{expr=}) (analyzeExpr env expr)
 
 analyzeNames' :: Interfaces -> Program -> Analyze Program
-analyzeNames' interfaces (Program classes main pos)
-    = noDups (fmap idOf classes) *> fmap Program
-        (traverse (analyzeClass interfaces env) classes)
+analyzeNames' interfaces (Program classes functions main pos)
+    = noDups (fmap idOf classes ++ fmap idOf functions) *>
+        (Program
+        <$> traverse (analyzeClass interfaces env) classes
+        <*> traverse (analyzeFun env) functions
         <*> (analyzeMain env main)
-        <*> pure pos
+        <*> pure pos)
     where
         classNames = namedMap (fmap idOf classes)
-        env = Env {classes = classNames, methods = empty, vars = empty}
+        functionNames = namedMap (fmap idOf functions)
+        env = Env {classes = classNames, methods = empty, vars = functionNames}
 
 --- | Analyze names and replace identifiers
 --- | with their bound symbols.
 analyzeNames :: Program -> Analyze (Interfaces, Program)
-analyzeNames (program@Program classes main pos)
+analyzeNames (program@Program classes functions main pos)
     = case sequenceA (interfaces classes) of
         ALeft errors -> ALeft errors <* analyzeMain env main
             where
                 classNames = namedMap (fmap idOf classes)
-                env = Env {classes = classNames, methods = empty, vars = empty}
-        ARight result -> fmap (\p -> (result, p)) $ analyzeNames' result (Program classes main pos)
+                functionNames = namedMap (fmap idOf functions)
+                env = Env {classes = classNames, methods = empty, vars = functionNames}
+        ARight result -> fmap (\p -> (result, p)) $ analyzeNames' result program
 

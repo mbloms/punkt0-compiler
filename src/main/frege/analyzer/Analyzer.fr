@@ -10,14 +10,21 @@ import punkt0.analyzer.Names
 import punkt0.analyzer.Types
 import punkt0.analyzer.TypeCheck
 import punkt0.analyzer.LambdaLift(closureConvert)
+import Data.Traversable(traverse)
 
 analyzer program
-    = toEither (checkDependencies program)
+    = toEither (checkFunctionTypes program *> checkDependencies program)
     >>= \inheritance -> toEither (analyzeNames (closureConvert . createSymbols $ program))
     >>= \(interfaces, program') -> toEither (typecheck (inheritance, interfaces, Nothing) program')
-    -- >>= \(interfaces, program') -> pure program'
-    -- >>= \env -> toEither ())
-    -- >>= \interfaces -> toEither (typecheck (env.{interfaces=interfaces}) program')
+
+checkFunctionTypes :: Program -> Analyze ()
+checkFunctionTypes (Program _ functions _ pos)
+    = traverse checkFunction functions *> pure ()
+    where
+        checkFunction (Function{expr}) = hasFnType expr
+        hasFnType (Lambda _ t expr (Just r) _) = pure ()
+        hasFnType (Lambda _ t expr Nothing _) = hasFnType expr
+        hasFnType expr = report1 $ TypeError $ CannotDeduceType expr
 
 runAnalyzer = fmap analyzer . (parseCode program)
 

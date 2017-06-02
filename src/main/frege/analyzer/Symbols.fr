@@ -96,6 +96,10 @@ createSymbolsClass (Class name extends vars methods pos) symbol
         (j, methods') = tagIds (const $ MethodSymbol className) methods i
         (k, methods'') = createSymbolsNested createSymbolsMethod methods' j
 
+createSymbolsFun :: FunctionDeclaration -> State Int FunctionDeclaration
+createSymbolsFun (fn@Function{expr}) i = (j, fn.{expr=expr'})
+    where (j, expr') = createExpressionSymbols expr i
+
 createSymbolsNested :: (a -> State Int a) -> [a] -> State Int [a]
 createSymbolsNested nested xs symbol = createSymbolsNested' symbol xs []
     where
@@ -115,10 +119,12 @@ tagMain (main@Main{name}) i
 
 --- | Replace declarations of identifiers with symbols (starting from 0)
 createSymbols :: Program -> Program
-createSymbols (Program classes main pos)
-    = Program classes'' main' pos
+createSymbols (Program classes functions main pos)
+    = Program classes'' functions'' main' pos
     where
         (i, classes') = tagIds (const ClassSymbol) classes 0
-        (j, main') = createSymbolsMain (tagMain main i) (i+1)
-        (k, classes'') = createSymbolsNested createSymbolsClass classes' j
+        (j, functions') = tagIds (const FunctionSymbol) functions i
+        (k, main') = createSymbolsMain (tagMain main i) (j+1)
+        (l, classes'') = createSymbolsNested createSymbolsClass classes' k
+        (m, functions'') = createSymbolsNested createSymbolsFun functions' l
 
