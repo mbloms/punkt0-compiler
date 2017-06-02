@@ -52,7 +52,6 @@ instance Typed FunctionDeclaration where
         where
             fnType (Lambda _ t expr (Just r) _) = TArrow (ttype t) (ttype r)
             fnType (Lambda _ t expr Nothing _) = TArrow (ttype t) (fnType expr)
-            fnType _ = error "Cannot deduce type of function declaration" -- TODO turn into a nicer error
 
 toProgram [] main = Program [] [] main main.position
 toProgram (x:rest) main = Program classes functions main (posOf x)
@@ -214,6 +213,7 @@ ttype String = TString
 ttype Unit = TUnit
 ttype Bool = TBool
 ttype (User name) = TClass (nameOf name)
+ttype (Arrow t r) = TArrow (ttype t) (ttype r)
 
 simpleType :: Parser Lex Type
 simpleType =
@@ -363,10 +363,21 @@ binOp stronger op = do
         buildOp e [] = e
         buildOp e ((operator, e2):rest) = buildOp (BinOp e operator e2 e.position) rest
 
+binOpRight :: Parser Lex Expression -> Parser Lex BinOp -> Parser Lex Expression
+binOpRight stronger op = do
+    e <- stronger
+    results <- many $ fmap (,) op <*> stronger
+    return $! buildOp e results
+    where
+        buildOp e [] = e
+        buildOp e es = let
+            (operator'',e'') = foldr (\(operator, e2) (operator',e') -> (operator, BinOp e2 operator' e' e2.position)) (last es) (init es)
+            in BinOp e operator'' e'' e.position
+
 expression = apply
 
 apply :: Parser Lex Expression
-apply = binOp orative (tokenOp Tokens.Apply *> pure Apply)
+apply = binOpRight orative (tokenOp Tokens.Apply *> pure Apply)
 
 orative :: Parser Lex Expression
 orative = binOp andative (tokenOp Tokens.Or *> pure Or)
@@ -386,10 +397,14 @@ additive = binOp multiplicative op
         op = (tokenOp Tokens.Plus *> pure Plus)
             <|> (tokenOp Tokens.Minus *> pure Minus)
 
-multiplicative = binOp methodCall op
+multiplicative = binOp spaceApply op
     where
         op = (tokenOp Tokens.Times *> pure Times)
             <|> (tokenOp Tokens.Div *> pure Div)
+
+spaceApply = binOp methodCall op
+    where
+        op = pure Apply
 
 literalToExpression :: Lex -> Expression
 literalToExpression (Lexeme.Ok (Tokens.Literal (Tokens.LitInt i)) pos) = LitInt i pos

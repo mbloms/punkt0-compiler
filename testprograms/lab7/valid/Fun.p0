@@ -1,11 +1,45 @@
-class Fun {
 
+class IntList {
+    var head : Int = 0;
+    var tail : IntList = null;
+    var set : Boolean = false;
+    def cons(h : Int, t : IntList) : IntList = {
+        if (set) {
+            println("Screw You.");
+            this
+        }
+        else {
+            head = h;
+            tail = t;
+            set = true;
+            this
+        }
+    }
+    def head() : Int = {head}
+    def tail() : IntList = {tail}
 }
 
-fun fact = \n : Int.
-    if (n==0) 1
-    else n * (fact $ n-1) : Int;
+fun fact = λn : Int.
+    if (n==0) 1 else n * (fact n-1) : Int
+
+fun cons = λh : Int. λl : IntList.
+    new IntList().cons(h,l) : IntList
+
+fun map = λf : Int -> Int. λl : IntList.
+     if (l==null)
+        l
+     else
+        cons (f l.head()) (map f l.tail()) : IntList
+
+fun toString = λl : IntList.
+    if (l==null)
+        "Nil"
+    else
+        l.head() + " :: " + toString l.tail() : String
 
 object Main extends App {
+    var map : (Int -> Int) -> IntList -> IntList = map;
     println(fact $ 6) //720
+    ; println(toString $ map fact $ cons 1 $ cons 3 null)
 }
+

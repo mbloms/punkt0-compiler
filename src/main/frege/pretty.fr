@@ -181,6 +181,8 @@ instance Pretty Type where
     prettyf String = prettyf "String"
     prettyf Unit = prettyf "Unit"
     prettyf (User x) = prettyf x
+    prettyf (Arrow (t@Arrow _ _) r) = wrap Parens (prettyf t) . prettyf "->" . prettyf r
+    prettyf (Arrow t r) = prettyf t . prettyf "->" . prettyf r
 
 instance Pretty BinOp where
     prettyf And = prettyf "&&"
@@ -190,7 +192,7 @@ instance Pretty BinOp where
     prettyf Plus = prettyf '+'
     prettyf Minus = prettyf '-'
     prettyf Times = prettyf '*'
-    prettyf Apply = prettyf '$'
+    prettyf Apply = id
     prettyf Div = prettyf '/'
 
 instance Pretty Int where

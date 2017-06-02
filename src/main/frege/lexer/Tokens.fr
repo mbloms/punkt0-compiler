@@ -81,7 +81,7 @@ commentordiv = (char '*' *> (insidecomment *> ignore (pure ()))
 
 operator
     = (char '+' *> pure Plus)
-    <|> (char '-' *> pure Minus)
+    <|> (char '-' *> (char '>' *> pure Arrow <|> pure Minus))
     <|> (char '*' *> pure Times)
     <|> (string "&&" *> pure And)
     <|> (string "||" *> pure Or)

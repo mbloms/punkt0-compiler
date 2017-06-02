@@ -279,11 +279,13 @@ typecheckMain env (Main name extends vars body pos)
             then report1 (TypeError (MustExtendApp pos))
             else pure ()
 
+typecheckFun env (fn@Function{expr}) = fmap (fn.{expr=}) (typecheckExpression env expr)
+
 typecheck :: Environment -> Program -> Analyze Program
 typecheck env (Program classes functions main pos)
     = Program
         <$> traverse (typecheckClass env) classes
-        <*> pure functions
+        <*> traverse (typecheckFun env) functions
         <*> typecheckMain env main
         <*> pure pos
 
