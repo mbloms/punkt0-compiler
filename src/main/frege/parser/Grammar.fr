@@ -248,7 +248,7 @@ derive Eq SymbolType
 
 data Identifier
     = ID {str :: String, pos :: Position}
-    | Symbol Int SymbolType TType Identifier
+    | Symbol{id :: Int, symType :: SymbolType, t :: TType, name :: Identifier}
 derive Show Identifier
 instance JSON.ToJSON Identifier where
     toJSON = JSON.String . show

@@ -3,6 +3,7 @@ import punkt0.parser.Grammar
 import punkt0.Positioned
 import Data.HashMap
 import Data.Monoid
+import punkt0.Typed
 
 data ExpressionF a
     = BinOpF {lhs :: a, op :: BinOp, rhs :: a, pos :: Position}
@@ -34,6 +35,7 @@ data ExpressionF a
               , returnType :: (Maybe Type)
               , pos :: Position
               }
+    | TypedF {t :: TType, expr :: a}
 
 instance Functor ExpressionF where
     fmap f (BinOpF lhs op rhs pos) = BinOpF (f lhs) op (f rhs) pos
@@ -46,6 +48,7 @@ instance Functor ExpressionF where
     fmap f (AssignF var expr pos) = AssignF var (f expr) pos
     fmap f (LambdaF x t expr r pos) = LambdaF x t (f expr) r pos
     fmap f (ClosureF free x t expr r pos) = ClosureF free x t (f expr) r pos
+    fmap f (TypedF t expr) = TypedF t (f expr)
     fmap _ (IdentifierF {id, pos}) = IdentifierF id pos
     fmap _ (LitIntF n pos) = LitIntF n pos
     fmap _ (LitStringF s pos) = LitStringF s pos
@@ -91,25 +94,32 @@ transformExpressions f (Program classes functions main pos)
         (transformExpressionsMain f main)
         pos
 
-
 collectVar :: Monoid a => (Expression -> a) -> VarDeclaration -> a
 collectVar f (Var{expr}) = f expr
 
 collectMethod :: Monoid a => (Expression -> a) -> MethodDeclaration -> a
 collectMethod f (MethodDeclaration{vars,exprs})
-    = mconcat (fmap (collectVar f) vars) <> mconcat (fmap f exprs)
+    = mconcat (fmap (collectVar f) vars)
+    <> mconcat (fmap f exprs)
 
 collectClass :: Monoid a => (Expression -> a) -> ClassDeclaration -> a
 collectClass f (Class{vars,methods})
-    = mconcat (fmap (collectVar f) vars) <> mconcat (fmap (collectMethod f) methods)
+    = mconcat (fmap (collectVar f) vars)
+    <> mconcat (fmap (collectMethod f) methods)
 
 collectMain :: Monoid a => (Expression -> a) -> MainDeclaration -> a
 collectMain f (Main{vars, body})
-    = mconcat (fmap (collectVar f) vars) <> mconcat (fmap f body)
+    = mconcat (fmap (collectVar f) vars)
+    <> mconcat (fmap f body)
+
+collectFunction :: Monoid a => (Expression -> a) -> FunctionDeclaration -> a
+collectFunction f Function{expr} = f expr
 
 collectProgram :: Monoid a => (Expression -> a) -> Program -> a
 collectProgram f (Program classes functions main pos)
-    = mconcat (fmap (collectClass f) classes) <> collectMain f main
+    = mconcat (fmap (collectClass f) classes)
+    <> mconcat (fmap (collectFunction f) functions)
+    <> collectMain f main
 
 
 projectExpr :: Expression -> ExpressionF Expression
@@ -131,6 +141,7 @@ projectExpr (Println {expr, pos}) = PrintlnF expr pos
 projectExpr (Assign {var, expr, pos}) = AssignF var expr pos
 projectExpr (Lambda x t expr r pos) = LambdaF x t expr r pos
 projectExpr (Closure free x t expr r pos) = ClosureF free x t expr r pos
+projectExpr (Typed t expr) = TypedF t expr
 
 injectExpr :: ExpressionF Expression -> Expression
 injectExpr (BinOpF {lhs, op, rhs, pos}) = BinOp lhs op rhs pos
@@ -151,3 +162,4 @@ injectExpr (PrintlnF {expr, pos}) = Println expr pos
 injectExpr (AssignF {var, expr, pos}) = Assign var expr pos
 injectExpr (LambdaF x t expr r pos) = Lambda x t expr r pos
 injectExpr (ClosureF free x t expr r pos) = Closure free x t expr r pos
+injectExpr (TypedF t expr) = Typed t expr

@@ -35,7 +35,7 @@ declareField className cf (FieldCode{name,t})
     = cf.addField (javaType t) name >> pure cf
 
 genClass :: Maybe String -> Maybe String -> Class -> IO ()
-genClass outDir sourceFile (ClassCode{name,extends,fields,methods})
+genClass outDir sourceFile (ClassCode{name,extends,fields,methods,constructor=Nothing})
     = ClassFile.new name (toOption extends) >>= \cf ->
     foldM (declareField name) cf fields >>= \cf ->
     foldM (genMethod name) cf methods >>= \cf ->
@@ -53,7 +53,7 @@ genClass outDir sourceFile (ClassCode{name,extends,fields,methods})
         constructor = thisPtr : construct : concatMap (compileFieldInit name) fields ++ [Return]
 
 genProgram :: Maybe String -> Maybe String -> Prog -> IO ()
-genProgram outDir sourceFile (ProgramCode (classes, MainCode{name,body,vars}))
+genProgram outDir sourceFile (ProgramCode (classes, abstractClasses, MainCode{name,body,vars}))
     = createDirectory
     >> traverse (genClass outDir sourceFile) classes
     >>= \_ -> ClassFile.new name (toOption Nothing)

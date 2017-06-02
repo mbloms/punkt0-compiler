@@ -160,6 +160,7 @@ javaType TInt = "I"
 javaType TBool = "Z"
 javaType (TClass c) = "L" ++ c ++ ";"
 javaType TUnit = "V"
+javaType (TArrow t r) = "L"++ superFunction t r ++ ";"
 
 data Gen
     = Gen CodeGenerator

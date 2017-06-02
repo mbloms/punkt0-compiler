@@ -43,8 +43,8 @@ freeVars = cataExpr alg where
 
 lambdaLift :: Expression -> [Expression]
 lambdaLift = paraExpr alg where
-    alg (ClosureF _ _ _ (closure, lifted) _ _)
-        = closure : lifted
+    alg (ClosureF free x t (expr, lifted) r pos)
+        = (Closure free x t expr r pos) : lifted
     alg (BinOpF (_,lhs) op (_,rhs) pos) = lhs ++ rhs
     alg (MethodCallF (_,expr) name args pos) = expr ++ (concat $ fmap snd args)
     alg (NotF (_, expr) pos) = expr
@@ -55,11 +55,15 @@ lambdaLift = paraExpr alg where
     alg (IfF (_, p) (_, body) (Just (_, elseBody)) pos) = concat [p, body, elseBody]
     alg (WhileF (_, p) (_, body) pos) = p ++ body
     alg (LambdaF{}) = error "Should not have Lambda in lambda lifting phase"
+    alg IdentifierF{} = []
     alg LitIntF{} =  []
     alg LitStringF{} = []
     alg LitThisF{} = []
     alg LitNullF{} = []
     alg LitTrueF{} = []
+    alg LitFalseF{} = []
+    alg NewF{}  = []
+    alg (TypedF _ (_, expr)) = expr
 
 lambdaLifting :: Program -> [Expression]
 lambdaLifting = collectProgram lambdaLift
