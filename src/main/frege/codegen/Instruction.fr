@@ -43,6 +43,7 @@ data Instruction
     | ACONST_NULL
     | Invoke QualifiedClass String TType
     | InvokeSpecial QualifiedClass String TType
+    | CheckCast TType
     | DefaultNew QualifiedClass
     | CreateNew QualifiedClass
     | GetStatic QualifiedClass FieldName TType
@@ -89,7 +90,7 @@ data Class
         , extends :: Maybe QualifiedClass
         , fields :: [Field]
         , methods :: [MethodCode]
-        , constructor :: Maybe ([String], MethodCode)
+        , constructor :: Maybe [TType]
         }
 derive Show Class
 
@@ -178,18 +179,33 @@ symbolType FreeSymbol{name} = symbolType name
 compileExpression :: Expression -> [Instruction]
 compileExpression Closure{free,var=Symbol{id,name},pos}
     = prependPos pos
-    $ (concatMap compileExpression exprs)
-    ++ ([CreateNew className, Duplicate, InvokeSpecial className "<init>" constructorType])
+    $ CreateNew className
+    : Duplicate
+    : concatMap compileExpression exprs
+    ++ [InvokeSpecial className "<init>" constructorType]
     where
         className = nameOf name ++ "$" ++ show id
         args = keys free
         exprs = fmap (\i -> Identifier i pos) args
-        constructorType = TMethod (fmap (functionArgType . symbolType) args, TUnit)
+        constructorType = TMethod (fmap symbolType args, TUnit)
 compileExpression (Typed _ (BinOp (e1@Typed{t=TArrow t r}) Apply e2 pos))
     = prependPos pos
     $ compileExpression e1
     ++ compileExpression e2
-    ++ [Invoke (superFunction t r) "apply" (TMethod ([functionArgType t], functionArgType r))]
+    ++ castBefore
+    ++ [ Invoke (superFunction t r) "apply" (TMethod ([functionArgType t], functionArgType r))]
+    ++ cast
+    where
+        castBefore = case t of
+            TInt -> []
+            TBool -> []
+            TUnit -> []
+            _ -> [CheckCast TAnyRef]
+        cast = case r of
+            TInt -> []
+            TBool -> []
+            TUnit -> []
+            _ -> [CheckCast r]
 compileExpression (Typed TInt (BinOp e1 op e2 pos))
     = prependPos pos $ case (e1.t,e2.t) of
     (TInt,TInt) -> compileExpression e1 ++ compileExpression e2 ++ case op of
@@ -279,11 +295,11 @@ compileExpression (Identifier Symbol{symType=FieldSymbol c,name,t} pos) = [LineN
 compileExpression (Identifier Symbol{id,symType=FunctionSymbol,name} pos) = [DefaultNew (nameOf name ++ "$" ++ show id)]
 compileExpression (Identifier Symbol{t,id,symType=LambdaSymbol,name} pos)
     = [LineNum pos.line, ALoad 0, GetField (nameOf name ++ "$" ++ show id) (nameOf name) t]
-compileExpression (Identifier Symbol{symType=LocalSymbol _ i,t} pos) = [LineNum pos.line, load t i]
+compileExpression (Identifier Symbol{symType=LocalSymbol _ i,t} pos) = LineNum pos.line : load t i
     where
-        load TInt = ILoad
-        load TBool = ILoad
-        load _ = ALoad
+        load TInt i = [ILoad i]
+        load TBool i = [ILoad i]
+        load t a = [ALoad a, CheckCast t]
 
 compileExpression (LitNull pos) = [LineNum pos.line, ACONST_NULL]
 compileExpression (LitThis pos) = [ALoad 0]
@@ -322,16 +338,18 @@ compileVar (Var{name = Symbol _ (LocalSymbol _ i) t n, expr})
 compileMethod :: MethodDeclaration -> MethodCode
 compileMethod (MethodDeclaration{name,vars,exprs})
     = MethodCode (nameOf name) argTypes vs ret
-        (declareVars ++ (flattenInstructions_ $ compileExpression body) ++ [return ret])
+        (declareVars ++ (flattenInstructions_ $ compileExpression body) ++ [returnCode ret])
     where
         (Symbol i s (TMethod (argTypes,ret)) p) = name
         vs = fmap (const 1) vars
         declareVars = concatMap compileVar vars
-        return TInt = IReturn
-        return TBool = IReturn
-        return TUnit = Return
-        return _ = AReturn
         body = (Block exprs (position name))
+
+returnCode :: TType -> Instruction
+returnCode TInt = IReturn
+returnCode TBool = IReturn
+returnCode TUnit = Return
+returnCode _ = AReturn
 
 compileMain :: MainDeclaration -> Main
 compileMain (Main{name, vars, body})
@@ -371,17 +389,18 @@ superFunction _ TBool = "FunctionOB$$"
 superFunction _ TUnit = "FunctionOU$$"
 superFunction _ _ = "FunctionOO$$"
 
+loadCode TInt = ILoad
+loadCode TBool = ILoad
+loadCode _ = ALoad
+
 initField (name,param)
     = FieldCode
         { t = t
         , name = nameOf name
-        , code = [load t param]
+        , code = [loadCode t param]
         }
         where
             t = symbolType name
-            load TInt = ILoad
-            load TBool = ILoad
-            load _ = ALoad
 
 ttypeToType :: TType -> Type
 ttypeToType (TClass c) = User (ID c undefined)
@@ -394,6 +413,8 @@ ttypeToType (TArrow t r) = Arrow (ttypeToType t) (ttypeToType r)
 functionArgType t = case t of
     TArrow{} -> TAnyRef
     TBottomRef -> TAnyRef
+    TClass{} -> TAnyRef
+    TString{} -> TAnyRef
     TMethod(args,ret) = TMethod (fmap functionArgType args, functionArgType ret)
     other -> other
 
@@ -420,21 +441,79 @@ compileClosure (Closure{free,var=Symbol{name,id},argType,expr=expr@Typed{t}})
     = ClassCode
         { name = className
         , extends = Just extends
-        , fields = fmap initField (zip (keys free) [1..])
+        , fields = fmap initField (zip args [1..])
         , methods = [applyMethod className argType returnType expr]
-        , constructor = Nothing
+        , constructor = Just types
         }
     where
+        args = keys free
+        types = fmap symbolType args
         className = nameOf name ++ "$" ++ show id
         TArrow argType' returnType = TArrow (ttype argType) t
         extends = superFunction argType' returnType
+
+abstractMethod name args returnType
+    = AbstractMethod
+        { name = name
+        , args = args
+        , returnType = returnType
+        }
+
+compileFunctionClass t r
+    = AbstractClass
+        { name = superFunction t r
+        , extends = Nothing
+        , methods = [abstractMethod "apply" [t] r]
+        }
+
+compileFunction Function{name=Symbol{id,name,t},expr=expr}
+    | traceLn (show expr) = undefined
+    | otherwise = ClassCode
+        { name = className
+        , extends = Just extends
+        , fields = [field]
+        , methods = [method]
+        , constructor = Nothing
+        }
+    where
+        field = FieldCode
+                { t
+                , name = "f$"
+                , code = compileExpression expr
+                }
+        method = MethodCode
+            { name = "apply"
+            , args = [functionArgType argType']
+            , vars = []
+            , returnType = functionArgType returnType
+            , body = body
+            }
+        body = [
+            ALoad 0
+            , GetField className "f$" (TClass varClass)
+            , loadCode argType' 1
+            , Invoke extends "apply" (TMethod ([functionArgType argType'], functionArgType returnType))
+            , returnCode returnType
+            ]
+        varClass = extends
+        className = nameOf name ++ "$" ++ show id
+        TArrow argType' returnType = t
+        argType = ttypeToType argType'
+        extends = superFunction argType' returnType
+
 
 compileProgram (program@Program classes functions main _)
     | traceLn (show compiled) = undefined
     | otherwise = compiled
     where
-        compiled = ProgramCode (compiledClasses ++ closureClasses, abstractClasses, compileMain main)
+        compiled = ProgramCode
+            ( compiledClasses ++ closureClasses ++ functionClasses
+            , abstractClasses
+            , compileMain main
+            )
         compiledClasses = fmap compileClass classes
         closureClasses = fmap compileClosure (lambdaLifting program)
-        abstractClasses = []
+        functionClasses = fmap compileFunction functions
+        functionTypes = [TInt, TBool, TUnit, TAnyRef]
+        abstractClasses = [compileFunctionClass t r | t <- functionTypes, r <- functionTypes]
 

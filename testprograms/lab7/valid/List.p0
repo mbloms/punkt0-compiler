@@ -1,4 +1,3 @@
-
 class IntList {
     var head : Int = 0;
     var tail : IntList = null;
@@ -17,19 +16,13 @@ class IntList {
     }
     def head() : Int = {head}
     def tail() : IntList = {tail}
+    def toString() : String = {
+        this.head() + " :: " + (if (this.tail() == null) "Nil" else this.tail().toString())
+    }
 }
-
-fun fact = λn : Int.
-    if (n==0) 1 else n * (fact (n-1)) : Int
 
 fun cons = λh : Int. λl : IntList.
     new IntList().cons(h,l) : IntList
-
-fun map = λf : Int -> Int. λl : IntList.
-     if (l==null)
-        l
-     else
-        cons (f l.head()) (map f l.tail()) : IntList
 
 fun toString = λl : IntList.
     if (l==null)
@@ -37,10 +30,17 @@ fun toString = λl : IntList.
     else
         l.head() + " :: " + toString l.tail() : String
 
-object Main extends App {
-    // var map : (Int -> Int) -> IntList -> IntList = map;
-    println(fact $ 6) //720
-    ; println (toString $ cons 1 null)
-    ; println(toString $ map fact $ cons 1 $ cons 3 $ cons 6 null)
-}
+fun length = λl : IntList.
+    if (l == null)
+        0
+    else
+        1 + length l.tail() : Int
 
+object Main extends App {
+    var list : IntList = new IntList();
+    var l : Int = 0;
+    list = cons 1 $ cons 2 $ cons 3 null;
+    l = length list;
+    println (l);
+    println (toString list)
+}

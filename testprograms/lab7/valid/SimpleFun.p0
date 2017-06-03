@@ -1,0 +1,8 @@
+fun fact = λn : Int.
+    // n : Int
+    if (n==0) 1 else n * (fact (n-1)) : Int
+
+object Main extends App {
+    println(fact $ 6) //720
+}
+
