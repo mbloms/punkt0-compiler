@@ -1,4 +1,3 @@
-
 class IntList {
     var head : Int = 0;
     var tail : IntList = null;
@@ -19,23 +18,8 @@ class IntList {
     def tail() : IntList = {tail}
 }
 
-fun fact = λn : Int.
-    if (n==0) 1 else n * (fact (n-1)) : Int
-
 fun cons = λh : Int. λl : IntList.
     new IntList().cons(h,l) : IntList
-
-fun map = λf : Int -> Int. λl : IntList.
-     if (l==null)
-        l
-     else
-        cons (f l.head()) (map f l.tail()) : IntList
-
-fun toString = λl : IntList.
-    if (l==null)
-        "Nil"
-    else
-        l.head() + " :: " + toString l.tail() : String
 
 fun foldr = λf : Int -> Int -> Int. λx : Int. λxs : IntList.
       if (xs == null)
@@ -52,10 +36,5 @@ class Fun {
 }
 
 object Main extends App {
-    var map : (Int -> Int) -> IntList -> IntList = map;
-    println(fact $ 6) //720
-    ; println (toString $ cons 1 null)
-    ; println(toString $ map fact $ cons 1 $ cons 3 $ cons 6 null)
-    ; println(new Fun().sum(cons 4 $ cons 8 $ cons 7 null))
+    println(new Fun().sum(cons 4 $ cons 8 $ cons 7 null))
 }
-

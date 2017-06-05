@@ -285,12 +285,14 @@ compileExpression (LitInt i pos) = [LineNum pos.line, Push i]
 compileExpression (LitString s pos) = [LineNum pos.line, PushStr s]
 compileExpression (LitFalse pos) = [LineNum pos.line, pushFalse]
 compileExpression (LitTrue pos) = [LineNum pos.line, pushTrue]
-compileExpression (Identifier FreeSymbol{innerLambda=innerLambda@Symbol{id},name=Symbol{name,symType=LambdaSymbol,t}} pos)
+compileExpression (Identifier FreeSymbol{name=name@FreeSymbol{}} pos)
+    = compileExpression (Identifier name pos)
+compileExpression (Identifier FreeSymbol{name=name@Symbol{symType=FunctionSymbol}} pos)
+    = compileExpression (Identifier name pos)
+compileExpression (Identifier FreeSymbol{innerLambda=innerLambda@Symbol{id},name=Symbol{name,t}} pos)
     = [LineNum pos.line, ALoad 0, GetField className (nameOf name) t]
     where
         className = nameOf innerLambda ++ "$" ++ show id
-compileExpression (Identifier FreeSymbol{name} pos)
-    = compileExpression (Identifier name pos)
 compileExpression (Identifier Symbol{symType=FieldSymbol c,name,t} pos) = [LineNum pos.line,ALoad 0, GetField c (nameOf name) t]
 compileExpression (Identifier Symbol{id,symType=FunctionSymbol,name} pos) = [DefaultNew (nameOf name ++ "$" ++ show id)]
 compileExpression (Identifier Symbol{t,id,symType=LambdaSymbol,name} pos)

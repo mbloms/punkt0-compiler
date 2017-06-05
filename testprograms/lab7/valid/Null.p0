@@ -1,0 +1,7 @@
+class Car {}
+class Circle {}
+object Main extends App {
+    var car : Car -> Int -> Int = λc : Car. λx : Int. x;
+    var circle : Circle -> Int -> Int = λc : Circle. λx : Int. x;
+    println((if (true) car else circle) null 4)
+}

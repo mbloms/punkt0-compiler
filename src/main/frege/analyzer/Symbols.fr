@@ -109,10 +109,11 @@ createSymbolsNested nested xs symbol = createSymbolsNested' symbol xs []
             in createSymbolsNested' i' cs (c':acc)
 
 createSymbolsMain :: MainDeclaration -> State Int MainDeclaration
-createSymbolsMain (main@Main{vars}) symbol =
-    (j, main.{vars=vars'})
+createSymbolsMain (main@Main{vars,body}) symbol =
+    (k, main.{vars=vars', body=body'})
     where
         (j, vars') = createSymbolsVars (\i -> LocalSymbol LocalVar (i+1)) vars symbol
+        (k, body') = symbolManyExprs body j
 
 tagMain (main@Main{name}) i
     = main.{name=Symbol i ClassSymbol (TClass $ nameOf name) name}
