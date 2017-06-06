@@ -185,3 +185,64 @@ injectExpr (AssignF {var, expr, pos}) = Assign var expr pos
 injectExpr (LambdaF x t expr r pos) = Lambda x t expr r pos
 injectExpr (ClosureF free x t expr r pos) = Closure free x t expr r pos
 injectExpr (TypedF t expr) = Typed t expr
+
+runAlg :: Monad m => ExpressionF (m a) -> m (ExpressionF a)
+runAlg (IdentifierF i pos) = pure $ IdentifierF i pos
+runAlg (NewF i pos) = pure (NewF i pos)
+runAlg (LitIntF n pos) = pure (LitIntF n pos)
+runAlg (LitStringF s pos) = pure (LitStringF s pos)
+runAlg (LitThisF pos) = pure (LitThisF pos)
+runAlg (LitNullF pos) = pure (LitNullF pos)
+runAlg (LitTrueF pos) = pure (LitTrueF pos)
+runAlg (LitFalseF pos) = pure (LitFalseF pos)
+runAlg (BinOpF lhs op rhs pos)
+    = do
+    lhs' <- lhs
+    rhs' <- rhs
+    pure (BinOpF lhs' op rhs' pos)
+runAlg (MethodCallF expr name args pos)
+    = do
+    expr' <- expr
+    args' <- sequence args
+    pure (MethodCallF expr' name args' pos)
+runAlg (NotF expr pos)
+    = do
+    expr' <- expr
+    pure (NotF expr' pos)
+runAlg (BlockF exprs pos)
+    = do
+    exprs' <- sequence exprs
+    pure (BlockF exprs' pos)
+runAlg (PrintlnF expr pos)
+    = do
+    expr' <- expr
+    pure (PrintlnF expr' pos)
+runAlg (AssignF var expr pos)
+    = do
+    expr' <- expr
+    pure (AssignF var expr' pos)
+runAlg (IfF p body Nothing pos)
+    = do
+    p' <- p
+    body' <- body
+    pure $ (IfF p' body' Nothing pos)
+runAlg (IfF p body (Just elseBody) pos)
+    = do
+    p' <- p
+    body' <- body
+    elseBody' <- elseBody
+    pure $ IfF p' body' (Just elseBody') pos
+runAlg (WhileF p body pos)
+    = do
+    p' <- p
+    body' <- body
+    pure $ WhileF p' body' pos
+runAlg (ClosureF free x t expr r pos)
+    = do
+    expr' <- expr
+    pure $ ClosureF free x t expr' r pos
+runAlg (LambdaF x t expr r pos)
+    = do
+    expr' <- expr
+    pure $ (LambdaF x t expr' r pos)
+

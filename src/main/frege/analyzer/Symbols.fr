@@ -2,130 +2,88 @@ module punkt0.analyzer.Symbols where
 import punkt0.parser.Grammar
 import punkt0.Typed
 import punkt0.expression.ExpressionF
+import Control.monad.State
+import Data.Traversable(traverse,sequence)
 
 tagIds :: (WithId a, Typed a) => (Int -> SymbolType) -> [a] -> State Int [a]
-tagIds symbolType xs symbol = (i' + symbol, xs')
-    where
-        (i', xs') = foldr (\c (i,cs) -> (i+1, tagId (l-i-1) c : cs)) (0, []) xs
-        l = length xs
-        tagId i c = setId (Symbol (symbol+i) (symbolType i) (typeOf c) (idOf c)) c
-
-type State s t = s -> (s, t)
+tagIds symbolType xs = state $ \symbol -> let
+    l :: Int
+    l = length xs
+    tagId i c = setId (Symbol (symbol+i) (symbolType i) (typeOf c) (idOf c)) c
+    (i', xs') = foldr (\c (i,cs) -> (i+1, tagId (l-i-1) c : cs)) (0, []) xs
+    in (xs', i' + symbol)
 
 createExpressionSymbols :: Expression -> State Int Expression
-createExpressionSymbols expr symbol = cataExpr alg expr symbol where
-    alg :: ExpressionF (State Int Expression) -> (State Int Expression)
-    alg (IdentifierF i pos) symbol = (symbol, Identifier i pos)
-    alg (NewF i pos) symbol = (symbol, New i pos)
-    alg (LitIntF n pos) symbol =  (symbol, LitInt n pos)
-    alg (LitStringF s pos) symbol = (symbol, LitString s pos)
-    alg (LitThisF pos) symbol = (symbol, LitThis pos)
-    alg (LitNullF pos) symbol = (symbol, LitNull pos)
-    alg (LitTrueF pos) symbol = (symbol, LitTrue pos)
-    alg (LitFalseF pos) symbol = (symbol, LitFalse pos)
-    alg (BinOpF lhs op rhs pos) symbol = let
-        (j, lhs') = lhs symbol
-        (k, rhs') = rhs j
-        in (k, BinOp lhs' op rhs' pos)
-    alg (MethodCallF expr name args pos) symbol = let
-        (j, expr') = expr symbol
-        (k, args') = applyMany j args
-        in (k, MethodCall expr' name args' pos)
-    alg (NotF expr pos) symbol = let
-        (j, expr') = expr symbol
-        in (j, Not expr' pos)
-    alg (BlockF exprs pos) symbol = let
-        (j, exprs') = applyMany symbol exprs
-        in (j, Block exprs' pos)
-    alg (PrintlnF expr pos) symbol = let
-        (j, expr') = expr symbol
-        in (j, Println expr' pos)
-    alg (AssignF var expr pos) symbol = let
-        (j, expr') = expr symbol
-        in (j, Assign var expr' pos)
-    alg (IfF p body Nothing pos) symbol = let
-        (j, p') = p symbol
-        (k, body') = body j
-        in (k, If p' body' Nothing pos)
-    alg (IfF p body (Just elseBody) pos) symbol = let
-        (j, p') = p symbol
-        (k, body') = body j
-        (l, elseBody') = elseBody k
-        in (l, If p' body' (Just elseBody') pos)
-    alg (WhileF p body pos) symbol = let
-        (j, p') = p symbol
-        (k, body') = body j
-        in (k, While p' body' pos)
-    alg (ClosureF free x t expr _ pos) symbol = error "Should have no closures when generating symbols"
-    alg (LambdaF x t expr r pos) symbol = let
-        (j, expr') = expr symbol
-        k = j+1
-        in (k, Lambda (Symbol k LambdaSymbol (ttype t) x) t expr' r pos)
-    where
-        applyMany symbol = foldr (\a (i,as) -> let (i', a') = a i in (i', a' : as)) (symbol, [])
+createExpressionSymbols expr = cataExpr (fmap injectExpr . alg) expr where
+    alg :: ExpressionF (State Int Expression) -> (State Int (ExpressionF Expression))
+    alg (ClosureF free x t expr _ pos) = error "Should have no closures when generating symbols"
+    alg (LambdaF x t expr r pos) = state $ \symbol -> let
+        (expr', j) = runState expr symbol
+        in (LambdaF (Symbol (j+1) LambdaSymbol (ttype t) x) t expr' r pos, j+1)
+    alg e = runAlg e
 
 symbolManyExprs :: [Expression] -> State Int [Expression]
-symbolManyExprs exprs symbol = foldr step (symbol, []) exprs
-    where
-        step e (i, es) = let
-            (j, e') = createExpressionSymbols e i
-            in (j, e' : es)
+symbolManyExprs = traverse createExpressionSymbols
 
 createSymbolsVars :: (Int -> SymbolType) -> [VarDeclaration] -> State Int [VarDeclaration]
-createSymbolsVars tagger vars symbol = let
-    (j, vars') = tagIds tagger vars symbol
-    exprs = fmap (\var -> var.expr) vars'
-    (k, exprs') = symbolManyExprs exprs j
-    in (k, zipWith (\var expr -> var.{expr=expr}) vars' exprs')
+createSymbolsVars tagger vars
+    = do
+    vars' <- tagIds tagger vars
+    let exprs = fmap (\var -> var.expr) vars'
+    exprs' <- symbolManyExprs exprs
+    let vars'' = zipWith (\var expr -> var.{expr=expr}) vars' exprs'
+    pure vars''
 
 createSymbolsMethod :: MethodDeclaration -> State Int MethodDeclaration
-createSymbolsMethod (m@MethodDeclaration{args,vars,exprs}) symbol
-    = (j, m.{args=args',vars=vars',exprs=exprs'})
+createSymbolsMethod (m@MethodDeclaration{args,vars,exprs})
+    = do
+    args' <- tagIds (\l -> LocalSymbol Param (l+1)) args
+    vars' <- createSymbolsVars (\l -> LocalSymbol LocalVar (a+l+1)) vars
+    exprs' <- symbolManyExprs exprs
+    pure m.{args=args',vars=vars',exprs=exprs'}
     where
-        (i, args') = tagIds (\l -> LocalSymbol Param (l+1)) args symbol
         a = length args
-        (j, vars') = createSymbolsVars (\l -> LocalSymbol LocalVar (a+l+1)) vars i
-        (k, exprs') = symbolManyExprs exprs j
 
 createSymbolsClass :: ClassDeclaration -> State Int ClassDeclaration
-createSymbolsClass (Class name extends vars methods pos) symbol
-    = (k, Class name extends vars' methods'' pos)
+createSymbolsClass (Class name extends vars methods pos)
+    = do
+    vars' <- createSymbolsVars (const $ FieldSymbol className) vars
+    methods' <- tagIds (const $ MethodSymbol className) methods
+    methods'' <- createSymbolsNested createSymbolsMethod methods'
+    pure $ Class name extends vars' methods'' pos
     where
         className = nameOf name
-        (i, vars') = createSymbolsVars (const $ FieldSymbol className) vars symbol
-        (j, methods') = tagIds (const $ MethodSymbol className) methods i
-        (k, methods'') = createSymbolsNested createSymbolsMethod methods' j
 
 createSymbolsFun :: FunctionDeclaration -> State Int FunctionDeclaration
-createSymbolsFun (fn@Function{expr}) i = (j, fn.{expr=expr'})
-    where (j, expr') = createExpressionSymbols expr i
+createSymbolsFun (fn@Function{expr})
+    = do
+    expr' <- createExpressionSymbols expr
+    pure $ fn.{expr=expr'}
 
 createSymbolsNested :: (a -> State Int a) -> [a] -> State Int [a]
-createSymbolsNested nested xs symbol = createSymbolsNested' symbol xs []
-    where
-        createSymbolsNested' i [] acc = (i, reverse acc)
-        createSymbolsNested' i (c:cs) acc
-            = let (i', c') = nested c i
-            in createSymbolsNested' i' cs (c':acc)
+createSymbolsNested = traverse
 
 createSymbolsMain :: MainDeclaration -> State Int MainDeclaration
-createSymbolsMain (main@Main{vars,body}) symbol =
-    (k, main.{vars=vars', body=body'})
-    where
-        (j, vars') = createSymbolsVars (\i -> LocalSymbol LocalVar (i+1)) vars symbol
-        (k, body') = symbolManyExprs body j
+createSymbolsMain (main@Main{vars,body})
+    = do
+    vars' <- createSymbolsVars (\l -> LocalSymbol LocalVar (l+1)) vars
+    body' <- symbolManyExprs body
+    pure $ main.{vars=vars', body=body'}
 
-tagMain (main@Main{name}) i
-    = main.{name=Symbol i ClassSymbol (TClass $ nameOf name) name}
+tagMain (main@Main{name})
+    = state $ \i -> (main.{name=Symbol i ClassSymbol (TClass $ nameOf name) name}, i+1)
 
 --- | Replace declarations of identifiers with symbols (starting from 0)
 createSymbols :: Program -> Program
 createSymbols (Program classes functions main pos)
-    = Program classes'' functions'' main' pos
+    = evalState symbolTagging 0
     where
-        (i, classes') = tagIds (const ClassSymbol) classes 0
-        (j, functions') = tagIds (const FunctionSymbol) functions i
-        (k, main') = createSymbolsMain (tagMain main i) (j+1)
-        (l, classes'') = createSymbolsNested createSymbolsClass classes' k
-        (m, functions'') = createSymbolsNested createSymbolsFun functions' l
+        symbolTagging = do
+            classes' <- tagIds (const ClassSymbol) classes
+            functions' <- tagIds (const FunctionSymbol) functions
+            main' <- tagMain main
+            main'' <- createSymbolsMain main'
+            classes'' <- createSymbolsNested createSymbolsClass classes'
+            functions'' <- createSymbolsNested createSymbolsFun functions'
+            pure $ Program classes'' functions'' main'' pos
 

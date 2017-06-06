@@ -70,6 +70,7 @@ instance Pretty MainDeclaration where
 
 instance Pretty Identifier where
     prettyf (ID str _) = (Word str :)
+    prettyf (FreeSymbol{name}) = prettyf name
     prettyf (Symbol i _ _ (ID str _))
         | i == -1 = ((Word (str ++ "#??")) :)
         | otherwise = ((Word (str ++ "#" ++ show i)) :)
