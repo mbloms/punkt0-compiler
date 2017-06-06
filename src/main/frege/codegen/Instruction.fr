@@ -469,8 +469,7 @@ compileFunctionClass t r
         }
 
 compileFunction Function{name=Symbol{id,name,t},expr=expr}
-    | traceLn (show expr) = undefined
-    | otherwise = ClassCode
+    = ClassCode
         { name = className
         , extends = Just extends
         , fields = [field]
@@ -505,8 +504,7 @@ compileFunction Function{name=Symbol{id,name,t},expr=expr}
 
 
 compileProgram (program@Program classes functions main _)
-    | traceLn (show compiled) = undefined
-    | otherwise = compiled
+    = compiled
     where
         compiled = ProgramCode
             ( compiledClasses ++ closureClasses ++ functionClasses

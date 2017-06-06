@@ -49,7 +49,7 @@ createSymbolsClass (Class name extends vars methods pos)
     = do
     vars' <- createSymbolsVars (const $ FieldSymbol className) vars
     methods' <- tagIds (const $ MethodSymbol className) methods
-    methods'' <- createSymbolsNested createSymbolsMethod methods'
+    methods'' <- traverse createSymbolsMethod methods'
     pure $ Class name extends vars' methods'' pos
     where
         className = nameOf name
@@ -60,9 +60,6 @@ createSymbolsFun (fn@Function{expr})
     expr' <- createExpressionSymbols expr
     pure $ fn.{expr=expr'}
 
-createSymbolsNested :: (a -> State Int a) -> [a] -> State Int [a]
-createSymbolsNested = traverse
-
 createSymbolsMain :: MainDeclaration -> State Int MainDeclaration
 createSymbolsMain (main@Main{vars,body})
     = do
@@ -71,7 +68,7 @@ createSymbolsMain (main@Main{vars,body})
     pure $ main.{vars=vars', body=body'}
 
 tagMain (main@Main{name})
-    = state $ \i -> (main.{name=Symbol i ClassSymbol (TClass $ nameOf name) name}, i+1)
+    = state $ \i -> (main.{name=Symbol (i+1) ClassSymbol (TClass $ nameOf name) name}, i+1)
 
 --- | Replace declarations of identifiers with symbols (starting from 0)
 createSymbols :: Program -> Program
@@ -83,7 +80,7 @@ createSymbols (Program classes functions main pos)
             functions' <- tagIds (const FunctionSymbol) functions
             main' <- tagMain main
             main'' <- createSymbolsMain main'
-            classes'' <- createSymbolsNested createSymbolsClass classes'
-            functions'' <- createSymbolsNested createSymbolsFun functions'
+            classes'' <- traverse createSymbolsClass classes'
+            functions'' <- traverse createSymbolsFun functions'
             pure $ Program classes'' functions'' main'' pos
 
