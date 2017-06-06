@@ -61,6 +61,28 @@ instance Functor ExpressionF where
 cataExpr :: (ExpressionF a -> a) -> Expression -> a
 cataExpr algebra = algebra . fmap (cataExpr algebra) . projectExpr
 
+mergeAlg :: Monoid a => ExpressionF a -> a
+mergeAlg (BinOpF lhs op rhs pos) = lhs <> rhs
+mergeAlg (MethodCallF e name es pos) = e <> (mconcat es)
+mergeAlg (NotF {expr, pos}) = expr
+mergeAlg (PrintlnF {expr,pos}) = expr
+mergeAlg (BlockF es pos) = mconcat es
+mergeAlg (IfF p b (Just e) pos) = p <> b <> e
+mergeAlg (IfF p b Nothing pos) = p <> b
+mergeAlg (WhileF p b pos) = p <> b
+mergeAlg (AssignF var expr pos) = expr
+mergeAlg (LambdaF x t expr r pos) = expr
+mergeAlg (ClosureF free x t expr r pos) = expr
+mergeAlg (TypedF t expr) = expr
+mergeAlg (IdentifierF {id, pos}) = mempty
+mergeAlg (LitIntF n pos) = mempty
+mergeAlg (LitStringF s pos) = mempty
+mergeAlg (LitTrueF pos) = mempty
+mergeAlg (LitFalseF pos) = mempty
+mergeAlg (LitThisF pos) = mempty
+mergeAlg (LitNullF pos) = mempty
+mergeAlg (NewF {obj, pos}) = mempty
+
 paraExpr :: (ExpressionF (Expression, a) -> a) -> Expression -> a
 paraExpr algebra = algebra . fmap (\expr -> (expr, paraExpr algebra expr)) . projectExpr
 
