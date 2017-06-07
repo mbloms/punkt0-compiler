@@ -157,7 +157,6 @@ compileExpression (Typed TInt (BinOp e1 op e2 pos)) = prependPos pos $ case (e1.
         Minus -> [LineNum pos.line, ISUB]
         Times -> [LineNum pos.line, IMUL]
         Div -> [LineNum pos.line, IDIV]
-        _ -> error $ show (BinOp e1 op e2 pos)
 
 compileExpression (Typed TBool (BinOp e1 op e2 pos)) = prependPos pos $ case (e1.t,e2.t) of
     (TInt,TInt) -> case op of
