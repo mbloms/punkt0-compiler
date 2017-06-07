@@ -18,6 +18,7 @@ data Instruction
     | Label String
     | Goto String
     | Pop
+    | Noop
     | Return
     | IReturn
     | AReturn
@@ -391,6 +392,7 @@ superFunction _ TBool = "FunctionOB$$"
 superFunction _ TUnit = "FunctionOU$$"
 superFunction _ _ = "FunctionOO$$"
 
+loadCode TUnit = const Noop
 loadCode TInt = ILoad
 loadCode TBool = ILoad
 loadCode _ = ALoad
@@ -437,7 +439,10 @@ applyMethod className argType returnType expr
         arg = [(Symbol (-1) (LocalSymbol Param 1) t' (ID "x" pos), argType)]
         returnType' = functionArgType returnType
         t' = functionArgType t
-        name = Symbol (-1) (MethodSymbol className) (TMethod ([t'],returnType')) (ID "apply" pos)
+        args = case t' of
+            TUnit -> []
+            _ -> [t']
+        name = Symbol (-1) (MethodSymbol className) (TMethod (args,returnType')) (ID "apply" pos)
 
 compileClosure (Closure{free,var=Symbol{name,id},argType,expr=expr@Typed{t}})
     = ClassCode
@@ -448,7 +453,7 @@ compileClosure (Closure{free,var=Symbol{name,id},argType,expr=expr@Typed{t}})
         , constructor = Just types
         }
     where
-        args = keys free
+        args = filter (\arg -> symbolType arg /= TUnit) (keys free)
         types = fmap symbolType args
         className = nameOf name ++ "$" ++ show id
         TArrow argType' returnType = TArrow (ttype argType) t
@@ -465,8 +470,12 @@ compileFunctionClass t r
     = AbstractClass
         { name = superFunction t r
         , extends = Nothing
-        , methods = [abstractMethod "apply" [t] r]
+        , methods = [abstractMethod "apply" args r]
         }
+    where
+        args = case t of
+            TUnit -> []
+            _ -> [t]
 
 compileFunction Function{name=Symbol{id,name,t},expr=expr}
     = ClassCode
@@ -484,7 +493,7 @@ compileFunction Function{name=Symbol{id,name,t},expr=expr}
                 }
         method = MethodCode
             { name = "apply"
-            , args = [functionArgType argType']
+            , args = args
             , vars = []
             , returnType = functionArgType returnType
             , body = body
@@ -493,13 +502,16 @@ compileFunction Function{name=Symbol{id,name,t},expr=expr}
             ALoad 0
             , GetField className "f$" (TClass varClass)
             , loadCode argType' 1
-            , Invoke extends "apply" (TMethod ([functionArgType argType'], functionArgType returnType))
-            , returnCode returnType
+            , Invoke extends "apply" (TMethod (args, functionArgType returnType))
             ]
+            ++ [returnCode returnType]
         varClass = extends
         className = nameOf name ++ "$" ++ show id
         TArrow argType' returnType = t
         argType = ttypeToType argType'
+        args = case argType' of
+            TUnit -> []
+            _ -> [functionArgType argType']
         extends = superFunction argType' returnType
 
 

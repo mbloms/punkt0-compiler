@@ -1,0 +1,6 @@
+fun print = λx : Unit. println("Hello") : Unit;
+
+object Main extends App {
+    var world : Unit -> Unit = λy : Unit. println("world");
+    world $ print $ ({})
+}

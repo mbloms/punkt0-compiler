@@ -141,6 +141,9 @@ data ScalaSWAP = native "cafebabe.ByteCodes.SWAP$" where
 data ScalaPOP = native "cafebabe.ByteCodes.POP$" where
     pure native o "cafebabe.ByteCodes.POP$.MODULE$" :: ByteCode
 
+data ScalaNOP = native "cafebabe.ByteCodes.NOP$" where
+    pure native o "cafebabe.ByteCodes.NOP$.MODULE$" :: ByteCode
+
 data ScalaACONST_NULL = native "cafebabe.ByteCodes.ACONST_NULL$" where
     pure native o "cafebabe.ByteCodes.ACONST_NULL$.MODULE$" :: ByteCode
 
@@ -170,7 +173,9 @@ javaClass TAnyRef = "java/lang/Object"
 javaClass TString = "java/lang/String"
 
 javaType :: TType -> String
-javaType (TMethod (args, ret)) = "(" ++ concat (fmap  javaType args) ++ ")" ++ javaType ret
+javaType (TMethod (args, ret)) = "(" ++ concat (fmap javaType nonVoid) ++ ")" ++ javaType ret
+    where
+        nonVoid = filter (/= TUnit) args
 javaType TInt = "I"
 javaType TBool = "Z"
 javaType TUnit = "V"
@@ -209,6 +214,7 @@ getScalaI IXOR = Code $ ScalaIXOR.o
 getScalaI IUSHR = Code $ ScalaIUSHR.o
 getScalaI Swap = Code $ ScalaSWAP.o
 getScalaI Pop = Code $ ScalaPOP.o
+getScalaI Noop = Code $ ScalaNOP.o
 getScalaI (If_ACmpEq elseLabel) = Code $ ScalaIf_ACmpEq.apply elseLabel
 getScalaI (If_ICmpLt ltLabel) = Code $ ScalaIf_ICmpLt.apply ltLabel
 getScalaI ACONST_NULL = Code $ ScalaACONST_NULL.o
