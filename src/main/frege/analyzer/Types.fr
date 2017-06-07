@@ -30,6 +30,7 @@ data TypeError
     | CannotDeduceType Expression
     | CannotConstruct TType Position
     | MustExtendApp Position
+    | UnbalancedIf Position
 derive Show TypeError
 derive Eq TypeError
 
@@ -85,12 +86,18 @@ showAnalyzeError input (Shadow before new)
       ++ showCursorAt (lines input) (position new)
       ++ ["was previously defined here: " ++ (scalashow $ position before)]
       ++ showCursorAt (lines input) (position before)
+showAnalyzeError input (TypeError (UnbalancedIf pos))
+    = showErrorAt (lines input) "If without else body must be of type Unit." pos
+
 showAnalyzeError input (TypeError err)
     = show err
 showAnalyzeError input (NonConstantDeclaration p)
     = showErrorAt (lines input) ("Expression in variable declaration must be constant.") p
 showAnalyzeError input (ParamAssign v p)
     = showErrorAt (lines input) ("'" ++ v ++ "' is a method parameter and cannot be reassigned.") p
+showAnalyzeError input (InvalidThis p)
+    = showErrorAt (lines input) ("Invalid this...") p
+
 
 
 type Analyze a = Accumulate [AnalyzeError] a

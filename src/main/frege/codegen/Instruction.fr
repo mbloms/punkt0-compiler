@@ -197,10 +197,7 @@ compileExpression (Typed TString (BinOp e1 Plus e2 pos)) = prependPos pos $
 
 compileExpression (Typed TBool (Not expr pos)) = compileExpression expr ++ [Push 1, IXOR]
 compileExpression (Block [] pos) = []
-compileExpression (Block xs pos) = prependPos pos $ concatMap oneExpr (init xs) ++ compileExpression (last xs)
-    where
-        oneExpr (Typed TUnit x) = compileExpression x
-        oneExpr (Typed _ x) = compileExpression x ++ [Pop]
+compileExpression (Block xs pos) = prependPos pos $ cleanStack xs
 
 compileExpression (While pred body pos) = prependPos pos $ [Loop (compileExpression pred) (compileExpression body)]
 
@@ -211,7 +208,7 @@ compileExpression (Assign var expr pos) = case var of
             store TInt = IStore
             store TBool = IStore
             store _ = AStore
-    _ -> error (show expr)
+    _ -> error $ show (Assign var expr pos) ++ "has no pattern."
 
 compileExpression (Println (Typed TBool expr) pos)
     = [LineNum pos.line, GetStatic "java/lang/System" "out" (TClass "java/io/PrintStream")]
@@ -244,6 +241,13 @@ compileExpression (If p t e pos)
     = [LineNum pos.line, Branch (compileExpression p) (compileExpression t) (maybe [] compileExpression e)]
 compileExpression (Typed _ expr)
     = compileExpression expr
+compileExpression e = error $ "No pattern for Expression" ++ show e
+
+cleanStack :: [Expression] -> [Instruction]
+cleanStack xs = concatMap oneExpr (init xs) ++ compileExpression (last xs)
+    where
+        oneExpr (Typed TUnit x) = compileExpression x
+        oneExpr (Typed _ x) = compileExpression x ++ [Pop]
 
 compileFieldInit :: ClassName -> Field -> [Instruction]
 compileFieldInit c (FieldCode{t,name,code}) = ALoad 0 : code ++ [PutField c name t]
@@ -286,11 +290,14 @@ compileMethod (MethodDeclaration{name,args,vars,exprs})
 
 compileMain :: MainDeclaration -> Main
 compileMain (Main{name, vars, body})
-    = MainCode (nameOf name) (declareVars ++ (flattenInstructions_ $ compileExpression body') ++ [Return]) vs
+    = MainCode (nameOf name) (declareVars ++ (flattenInstructions_ $ compileExpression body') ++ pop ++ [Return]) vs
     where
         declareVars = concatMap compileVar vars
         vs = (fmap (const 1) vars)
         body' = (Block body (position name))
+        pop = case (last body) of
+            (Typed TUnit _) -> []
+            (Typed _ _) -> [Pop]
 
 compileClass :: ClassDeclaration -> Class
 compileClass (Class{name,extends,vars,methods})
