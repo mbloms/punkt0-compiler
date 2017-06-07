@@ -449,6 +449,7 @@ instance ScalaShow Expression where
     scalashow (Println expr _) = wrap "Println" scalashow expr
     scalashow (Assign name expr _) = wrap "Assign" id $ joinPair name expr
     scalashow (Identifier i _) = scalashow i
+    scalashow other = error $ "No pattern for scalashow "++show other
 
 
 instance ScalaShow MethodDeclaration where
