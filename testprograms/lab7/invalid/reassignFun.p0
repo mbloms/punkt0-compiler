@@ -1,0 +1,6 @@
+fun id = λx : Int. x : Int
+
+object Main extends App {
+    id = (λy : Int . y + 1);
+    println(id 5)
+}

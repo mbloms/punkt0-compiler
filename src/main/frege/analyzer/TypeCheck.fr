@@ -237,7 +237,9 @@ typecheckExpression env (println@Println{expr,pos})
             >>= \_ -> pure (Typed TUnit (println.{expr=expr'}))
 
 analyzeAssign :: Identifier -> Position -> Analyze ()
+analyzeAssign (FreeSymbol{name}) pos = analyzeAssign name pos
 analyzeAssign (Symbol _ (LocalSymbol Param _) _ i) pos = report1 (ParamAssign (nameOf i) pos)
+analyzeAssign (Symbol _ (FunctionSymbol) _ i) pos = report1 (FunctionAssign (nameOf i) pos)
 analyzeAssign (i@ID _ _) pos = error $ "Internal error: No symbol assigned." ++ show i ++ show pos
 analyzeAssign _ _ = pure ()
 
