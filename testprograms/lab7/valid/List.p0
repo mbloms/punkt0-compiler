@@ -1,0 +1,46 @@
+class IntList {
+    var head : Int = 0;
+    var tail : IntList = null;
+    var set : Boolean = false;
+    def cons(h : Int, t : IntList) : IntList = {
+        if (set) {
+            println("Screw You.");
+            this
+        }
+        else {
+            head = h;
+            tail = t;
+            set = true;
+            this
+        }
+    }
+    def head() : Int = {head}
+    def tail() : IntList = {tail}
+    def toString() : String = {
+        this.head() + " :: " + (if (this.tail() == null) "Nil" else this.tail().toString())
+    }
+}
+
+fun cons = λh : Int. λl : IntList.
+    new IntList().cons(h,l) : IntList
+
+fun toString = λl : IntList.
+    if (l==null)
+        "Nil"
+    else
+        l.head() + " :: " + toString l.tail() : String
+
+fun length = λl : IntList.
+    if (l == null)
+        0
+    else
+        1 + length l.tail() : Int
+
+object Main extends App {
+    var list : IntList = new IntList();
+    var l : Int = 0;
+    list = cons 1 $ cons 2 $ cons 3 null;
+    l = length list;
+    println (l);
+    println (toString list)
+}

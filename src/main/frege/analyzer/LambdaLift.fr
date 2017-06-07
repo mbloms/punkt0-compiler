@@ -1,0 +1,37 @@
+module punkt0.analyzer.LambdaLift where
+import punkt0.parser.Grammar
+import punkt0.analyzer.Types
+import punkt0.Positioned
+import Data.HashMap
+import punkt0.expression.ExpressionF
+
+lambdaToClosure :: Expression -> Expression
+lambdaToClosure = cataExpr alg where
+    alg (lambda@LambdaF arg typ e r pos)
+        = Closure (freeVars $ injectExpr lambda) arg typ e r pos
+    alg x = injectExpr x
+
+closureConvert :: Program -> Program
+closureConvert = transformExpressions lambdaToClosure
+
+freeVars :: Expression -> HashMap Identifier ()
+freeVars = cataExpr alg where
+    alg (IdentifierF i pos) = fromList [(i, ())]
+    alg (ClosureF free _ _ _ _ _) = free
+    alg (LambdaF x t expr _ _) = expr `difference` (fromList [(x, ())])
+    alg e = mergeAlg e
+
+-- paraExpr uses bottom-up recursion
+--  λx : Int. λy : Int. (x + y) []
+--  λx : Int. (λy : Int. x + y) [λy : Int. x + y]
+-- (λx : Int. λy : Int. x + y) [λx : Int. λy : Int. x + y, λy : Int. x + y]
+lambdaLift :: Expression -> [Expression]
+lambdaLift = paraExpr alg where
+    alg (LambdaF{}) = error "Should not have Lambda in lambda lifting phase"
+    alg (ClosureF free x t (expr, lifted) r pos)
+        = (Closure free x t expr r pos) : lifted
+    alg e = mergeAlg (fmap snd e)
+
+lambdaLifting :: Program -> [Expression]
+lambdaLifting = collectProgram lambdaLift
+

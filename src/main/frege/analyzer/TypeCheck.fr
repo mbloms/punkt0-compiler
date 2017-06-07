@@ -20,6 +20,11 @@ equalType pos t1 t2
 -- t1 <: t2
 -- t1 is a subtype of t2
 unify :: Environment -> Position -> TType -> TType -> Analyze TType
+-- (t -> r) <: (t' -> r') if t :> t' and r <: r'
+unify env pos (TArrow t r) (TArrow t' r')
+    = unify env pos t' t
+    *> unify env pos r r'
+    *> pure (TArrow t' r')
 unify _ pos TUnit TUnit = pure TUnit
 unify _ pos TInt TInt = pure TInt
 unify _ pos TBool TBool = pure TBool
@@ -29,6 +34,9 @@ unify (supers, interfaces, className) pos (TClass c) (TClass d)
     | otherwise = if d `elem` unJust (lookup c supers)
         then pure (TClass c)
         else report1 (TypeError $ UnificationError (TClass c) (TClass d) pos)
+unify _ _ TAnyRef TAnyRef = pure TAnyRef
+unify _ _ TBottomRef TBottomRef = pure TBottomRef
+unify _ _ TBottomRef TAnyRef = pure TBottomRef
 unify _ pos (TClass c) TAnyRef = pure (TClass c)
 unify _ pos TBottomRef (TClass c) = pure (TClass c)
 unify _ pos t1 t2 = report1 (TypeError $ UnificationError t1 t2 pos)
@@ -39,6 +47,15 @@ leastCommonClass xs ys
         zs = reverse (zip (reverse xs) (reverse ys))
         common = find (\(c,d) -> c == d) zs
 
+greatestLowerType (env@(supers, interfaces, className)) pos (TClass c) (TClass d)
+    = case unify env pos (TClass c) (TClass d) of
+        ALeft _ ->
+            case unify env pos (TClass d) (TClass c) of
+                ALeft _ -> ARight TBottomRef -- null inhabits all classes
+                result -> result
+        result -> result
+greatestLowerType env pos a b = unify env pos a b <|> unify env pos b a
+
 -- Get the type that is the most specific
 -- common type between the two types
 -- This is the same as a least upper bound on the
@@ -46,8 +63,15 @@ leastCommonClass xs ys
 leastCommonType (supers, interfaces, className) pos (TClass c) (TClass d)
     | c == d = pure (TClass c)
     | otherwise = leastCommonClass (c : (unJust $ lookup c supers)) (d : (unJust $ lookup d supers))
-leastCommonType env pos (TClass c) TAnyRef = pure (TClass c)
-leastCommonType env pos TAnyRef (TClass c) = pure (TClass c)
+leastCommonType env pos (TClass c) TAnyRef = pure TAnyRef
+leastCommonType env pos TAnyRef (TClass c) = pure TAnyRef
+leastCommonType env pos (TClass c) TBottomRef = pure (TClass c)
+leastCommonType env pos TBottomRef (TClass c) = pure (TClass c)
+leastCommonType env pos (TArrow t r) (TArrow t' r')
+    = toAccumulate $
+    toEither (greatestLowerType env pos t t') >>= \a ->
+    toEither (leastCommonType env pos r r') >>= \b ->
+    pure (TArrow a b)
 -- Unless the types are classes this is the same as normal unification
 leastCommonType env pos t1 t2
     = unify env pos t1 t2
@@ -61,6 +85,7 @@ applyUnify env pos t _ = report1 $ TypeError $ CallOnNonMethod t pos
 
 lookupType :: Environment -> Identifier -> TType
 lookupType env (Symbol _ _ t _) = t
+lookupType env (FreeSymbol {name}) = lookupType env name
 lookupType env (i@ID _ _) = error $ "Internal error: All identifier must be symbols in typechecker" ++ show i
 
 exprType :: Environment -> Expression -> Analyze TType
@@ -84,15 +109,16 @@ methodType (supers, interfaces, className) name (Typed (TClass c) expr)
         methodType = fmap (\t -> (typeOf t, c)) method
 methodType env name expr = report1 $ TypeError $ NotAnObject (position expr)
 
-binOpType :: Position -> BinOp -> TType -> TType -> Analyze TType
-binOpType _ Plus TInt TInt = pure TInt
-binOpType _ Plus TString TInt = pure TString
-binOpType _ Plus TInt TString = pure TString
-binOpType _ Plus TString TString = pure TString
-binOpType _ Minus TInt TInt = pure TInt
-binOpType _ Times TInt TInt = pure TInt
-binOpType _ Div TInt TInt = pure TInt
-binOpType pos Equals a b = if a == b || (obj a && obj b)
+binOpType :: Environment -> Position -> BinOp -> TType -> TType -> Analyze TType
+binOpType env pos Apply (TArrow t r) t' = unify env pos t' t *> pure r
+binOpType _ _ Plus TInt TInt = pure TInt
+binOpType _ _ Plus TString TInt = pure TString
+binOpType _ _ Plus TInt TString = pure TString
+binOpType _ _ Plus TString TString = pure TString
+binOpType _ _ Minus TInt TInt = pure TInt
+binOpType _ _ Times TInt TInt = pure TInt
+binOpType _ _ Div TInt TInt = pure TInt
+binOpType _ pos Equals a b = if a == b || (obj a && obj b)
     then
         pure TBool
     else
@@ -102,10 +128,10 @@ binOpType pos Equals a b = if a == b || (obj a && obj b)
         obj TAnyRef = true
         obj TBottomRef = true
         obj _ = false
-binOpType _ LessThan TInt TInt = pure TBool
-binOpType _ And TBool TBool = pure TBool
-binOpType _ Or TBool TBool = pure TBool
-binOpType pos op t1 t2 = report1 $ TypeError $ InvalidOperands op t1 t2 pos
+binOpType _ _ LessThan TInt TInt = pure TBool
+binOpType _ _ And TBool TBool = pure TBool
+binOpType _ _ Or TBool TBool = pure TBool
+binOpType _ pos op t1 t2 = report1 $ TypeError $ InvalidOperands op t1 t2 pos
 
 getType :: Expression -> TType
 getType (Typed t _) = t
@@ -113,6 +139,20 @@ getType _ = error "Internal error: all expressions should have type when calling
 
 typecheckExpression :: Environment -> Expression -> Analyze Expression
 typecheckExpression env (e@Typed _ _) = pure e
+typecheckExpression env (Closure free x t expr Nothing pos)
+    = case typecheckExpression env expr of
+        ALeft errors -> ALeft errors
+        ARight expr' ->
+            if (getType expr' == TBottomRef)
+                then report1 $ TypeError $ CannotDeduceType expr
+                else ARight
+                    $ Typed (TArrow (ttype t) (getType expr'))
+                    $ Closure free x t expr' Nothing pos
+typecheckExpression env (Closure free x t expr (Just r) pos)
+    = toAccumulate
+    $ toEither (typecheckExpression env expr)
+    >>= \expr' -> toEither (unify env pos (getType expr') (ttype r))
+    >>= \r' -> pure (Typed (TArrow (ttype t) r') (Closure free x t expr' (Just r) pos))
 typecheckExpression env (e@LitInt _ _) = fmap Typed (exprType env e) <*> pure e
 typecheckExpression env (e@LitString _ _) = fmap Typed (exprType env e) <*> pure e
 typecheckExpression env (e@LitTrue _) = fmap Typed (exprType env e) <*> pure e
@@ -142,7 +182,7 @@ typecheckExpression env (BinOp lhs op rhs pos)
     where
         check = toEither (fmap (,) (typecheckExpression env lhs) <*> (typecheckExpression env rhs))
             >>= \(lhs', rhs') -> toEither (fmap (,) (exprType env lhs') <*> (exprType env rhs'))
-            >>= \(t1, t2) -> toEither (fmap Typed (binOpType pos op t1 t2) <*> pure (BinOp lhs' op rhs' pos))
+            >>= \(t1, t2) -> toEither (fmap Typed (binOpType env pos op t1 t2) <*> pure (BinOp lhs' op rhs' pos))
 typecheckExpression env (MethodCall expr name args pos)
     = toAccumulate check
     where
@@ -231,19 +271,22 @@ typecheckClass (supers, interfaces, className) (Class name extends vars methods 
 typecheckMain :: Environment -> MainDeclaration -> Analyze MainDeclaration
 typecheckMain env (Main name extends vars body pos)
     = checkExtends
-    *> fmap (Main name extends)
-        (traverse (typecheckVar env) vars)
-        <*> (traverse (typecheckExpression env) body)
-        <*> pure pos
+    *> (Main name extends
+        <$> traverse (typecheckVar env) vars
+        <*> traverse (typecheckExpression env) body
+        <*> pure pos)
     where
         checkExtends = if nameOf extends != "App"
             then report1 (TypeError (MustExtendApp pos))
             else pure ()
 
+typecheckFun env (fn@Function{expr}) = fmap (fn.{expr=}) (typecheckExpression env expr)
+
 typecheck :: Environment -> Program -> Analyze Program
-typecheck env (Program classes main pos)
-    = fmap Program
-        (traverse (typecheckClass env) classes)
+typecheck env (Program classes functions main pos)
+    = Program
+        <$> traverse (typecheckClass env) classes
+        <*> traverse (typecheckFun env) functions
         <*> typecheckMain env main
         <*> pure pos
 

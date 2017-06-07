@@ -65,6 +65,8 @@ data Operator = Plus
     | Equals
     | Assign
     | LessThan
+    | Apply
+    | Arrow
 
 derive Show Operator
 derive Eq Operator
@@ -79,13 +81,17 @@ commentordiv = (char '*' *> (insidecomment *> ignore (pure ()))
 
 operator
     = (char '+' *> pure Plus)
-    <|> (char '-' *> pure Minus)
+    <|> (char '-' *> (char '>' *> pure Arrow <|> pure Minus))
     <|> (char '*' *> pure Times)
     <|> (string "&&" *> pure And)
     <|> (string "||" *> pure Or)
     <|> (char '=' *> (char '=' *> pure Equals <|> pure Assign))
     <|> (char '<' *> pure LessThan)
     <|> (char '/' *> commentordiv)
+    <|> (char '$' *> pure Apply)
+
+
+lambda = ((char '\\' <|> char '\u03BB') *> (pure $ Keyword Lambda))
 
 data Keyword = Class
     | Extends
@@ -98,6 +104,8 @@ data Keyword = Class
     | While
     | Var
     | Println
+    | Lambda
+    | Fun
 derive Show Keyword
 derive Eq Keyword
 
@@ -105,6 +113,7 @@ keywords :: [(String, Keyword)]
 keywords = [ ("class", Class)
     , ("extends", Extends)
     , ("def", Def)
+    , ("fun", Fun)
     , ("override", Override)
     , ("object", Object)
     , ("new", New)
@@ -112,7 +121,10 @@ keywords = [ ("class", Class)
     , ("else", Else)
     , ("while", While)
     , ("var", Var)
-    , ("println", Println)]
+    , ("println", Println)
+    , ("lambda", Lambda)
+    ]
+
 
 data Token
     = Op Operator
@@ -185,6 +197,7 @@ token
     <|> (char ',' *> pure Comma)
     <|> (char '.' *> pure Dot)
     <|> (char '!' *> pure Bang)
+    <|> lambda
     <|> (fmap Op operator)
     <|> (fmap Literal basicliteral)
     <|> identifier

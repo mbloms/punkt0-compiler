@@ -5,6 +5,9 @@ import punkt0.Positioned
 import lexer.Lexer(Lexeme(), FileIterator, scanTokens)
 import punkt0.lexer.Tokens as Tokens(Token(), getIdentifierString, getLiteral, isLiteral)
 import punkt0.Typed
+import Data.HashMap
+import Data.JSON as JSON()
+
 type Lex = Lexeme Token
 
 literal = satisfy $ \lex ->
@@ -33,15 +36,49 @@ tokenType t = token (Tokens.Type t)
 
 tokenEOF = symbol (Lexeme.EOF undefined)
 
-data Program = Program [ClassDeclaration] MainDeclaration Position
+data Program = Program [ClassDeclaration] [FunctionDeclaration] MainDeclaration Position
 derive Eq Program
 derive Show Program
 
-toProgram [] main = Program [] main main.position
-toProgram (c:rest) main = Program (c:rest) main c.position
+data FunctionDeclaration
+    = Function {name :: Identifier, expr :: Expression, pos :: Position}
+derive Eq FunctionDeclaration
+derive Show FunctionDeclaration
+instance Positioned FunctionDeclaration where
+    position Function{pos} = pos
+
+instance Typed FunctionDeclaration where
+    typeOf Function{expr} = fnType expr
+        where
+            fnType (Lambda _ t expr (Just r) _) = TArrow (ttype t) (ttype r)
+            fnType (Lambda _ t expr Nothing _) = TArrow (ttype t) (fnType expr)
+
+toProgram [] main = Program [] [] main main.position
+toProgram (x:rest) main = Program classes functions main (posOf x)
+    where
+        (classes, functions) = partitionEithers (x:rest)
+        posOf (Left c) = position c
+        posOf (Right f) = position f
+
+functionDeclaration :: Parser Lex FunctionDeclaration
+functionDeclaration = do
+    fn <- tokenKey Tokens.Fun
+    name <- identifier
+    tokenOp Tokens.Assign
+    expr <- expression
+    optional (token Tokens.SemiColon)
+    return $ Function name expr fn.position
+
+partitionEithers :: [(a | b)] -> ([a], [b])
+partitionEithers = foldr partitionEither ([],[])
+    where
+        partitionEither (Left a) (as, bs) = (a:as,bs)
+        partitionEither (Right b) (as, bs) = (as, b:bs)
 
 program :: Parser Lex Program
-program = fmap toProgram (many classDeclaration) <*> mainDeclaration <* tokenEOF
+program = fmap toProgram classesAndFuns <*> mainDeclaration <* tokenEOF
+    where
+        classesAndFuns = many (fmap Left classDeclaration <|> fmap Right functionDeclaration)
 
 data ClassDeclaration = Class
     { name :: Identifier
@@ -166,6 +203,7 @@ data Type
     | String
     | Unit
     | User {typeName :: Identifier}
+    | Arrow Type Type
 derive Eq Type
 derive Show Type
 
@@ -175,14 +213,22 @@ ttype String = TString
 ttype Unit = TUnit
 ttype Bool = TBool
 ttype (User name) = TClass (nameOf name)
+ttype (Arrow t r) = TArrow (ttype t) (ttype r)
 
-typeParser :: Parser Lex Type
-typeParser =
+simpleType :: Parser Lex Type
+simpleType =
     (tokenType Tokens.BooleanType *> pure Bool)
     <|> (tokenType Tokens.IntType *> pure Int)
     <|> (tokenType Tokens.StringType *> pure String)
     <|> (tokenType Tokens.UnitType *> pure Unit)
     <|> (fmap User identifier)
+    <|> parens typeParser
+
+typeParser :: Parser Lex Type
+typeParser = do
+    t <- simpleType
+    t2 <- optional (tokenOp Tokens.Arrow *> typeParser)
+    return $ maybe t (Arrow t) t2
 
 data LocalType
     = Param
@@ -195,21 +241,30 @@ data SymbolType
     | FieldSymbol String
     | MethodSymbol String
     | LocalSymbol LocalType Int
+    | LambdaSymbol
+    | FunctionSymbol
 derive Show SymbolType
 derive Eq SymbolType
 
 data Identifier
     = ID {str :: String, pos :: Position}
-    | Symbol Int SymbolType TType Identifier
+    | Symbol{id :: Int, symType :: SymbolType, t :: TType, name :: Identifier}
+    | FreeSymbol { innerLambda :: Identifier, name :: Identifier}
 derive Show Identifier
+instance JSON.ToJSON Identifier where
+    toJSON = JSON.String . show
+
 instance Eq Identifier where
     (ID a _) == (ID b _) = a == b
     (Symbol _ _ _ a) == (Symbol _ _ _ b) = a == b
     (Symbol _ _ _ a) == (b@(ID _ _)) = a == b
+    (FreeSymbol{name=a}) == b = a == b
+    a == (FreeSymbol{name=b}) = a == b
     (a@(ID _ _)) == (Symbol _ _ _ b) = a == b
 
     hashCode (ID a _) = hashCode a
     hashCode (Symbol _ _ _ a) = hashCode a
+    hashCode (FreeSymbol{name}) = hashCode name
 
 instance Ord Identifier where
     (ID a _) <=> (ID b _) = a <=> b
@@ -238,6 +293,7 @@ data BinOp
     | Minus
     | Times
     | Div
+    | Apply
 derive Show BinOp
 derive Eq BinOp
 
@@ -259,10 +315,23 @@ data Expression
          , elseBody :: (Maybe Expression)
          , pos :: Position
          }
-    | While {predicate :: Expression, body :: Expression, pos :: Position}
-    | Println {expr :: Expression, pos :: Position}
-    | Assign {var :: Identifier, expr :: Expression, pos :: Position}
-    | Typed {t :: TType, expr :: Expression}
+    | While { predicate :: Expression, body :: Expression, pos :: Position }
+    | Println { expr :: Expression, pos :: Position }
+    | Assign { var :: Identifier, expr :: Expression, pos :: Position }
+    | Typed { t :: TType, expr :: Expression}
+    | Lambda { var :: Identifier
+             , argType :: Type
+             , expr :: Expression
+             , returnType :: (Maybe Type)
+             , pos :: Position
+             }
+    | Closure { free :: (HashMap Identifier ())
+             , var :: Identifier
+             , argType :: Type
+             , expr :: Expression
+             , returnType :: (Maybe Type)
+             , pos :: Position
+             }
 derive Eq Expression
 derive Show Expression
 
@@ -287,6 +356,8 @@ instance Positioned Expression where
     position (While _ _ pos) = pos
     position (Println _ pos) = pos
     position (Assign _ _ pos) = pos
+    position (Lambda{pos}) = pos
+    position (Closure{pos}) = pos
 
 
 binOp :: Parser Lex Expression -> Parser Lex BinOp -> Parser Lex Expression
@@ -298,7 +369,21 @@ binOp stronger op = do
         buildOp e [] = e
         buildOp e ((operator, e2):rest) = buildOp (BinOp e operator e2 e.position) rest
 
-expression = orative
+binOpRight :: Parser Lex Expression -> Parser Lex BinOp -> Parser Lex Expression
+binOpRight stronger op = do
+    e <- stronger
+    results <- many $ fmap (,) op <*> stronger
+    return $! buildOp e results
+    where
+        buildOp e [] = e
+        buildOp e es = let
+            (operator'',e'') = foldr (\(operator, e2) (operator',e') -> (operator, BinOp e2 operator' e' e2.position)) (last es) (init es)
+            in BinOp e operator'' e'' e.position
+
+expression = apply
+
+apply :: Parser Lex Expression
+apply = binOpRight orative (tokenOp Tokens.Apply *> pure Apply)
 
 orative :: Parser Lex Expression
 orative = binOp andative (tokenOp Tokens.Or *> pure Or)
@@ -318,10 +403,14 @@ additive = binOp multiplicative op
         op = (tokenOp Tokens.Plus *> pure Plus)
             <|> (tokenOp Tokens.Minus *> pure Minus)
 
-multiplicative = binOp methodCall op
+multiplicative = binOp spaceApply op
     where
         op = (tokenOp Tokens.Times *> pure Times)
             <|> (tokenOp Tokens.Div *> pure Div)
+
+spaceApply = binOp methodCall op
+    where
+        op = pure Apply
 
 literalToExpression :: Lex -> Expression
 literalToExpression (Lexeme.Ok (Tokens.Literal (Tokens.LitInt i)) pos) = LitInt i pos
@@ -354,6 +443,7 @@ simpleexpression =
     (parens expression)
     <|> (posFirst (token Tokens.LBrace) $ fmap Block $ list expression (token Tokens.SemiColon) <* token Tokens.RBrace)
     <|> (fmap (literalToExpression) literal)
+    <|> lambda
     <|> (posFirst (tokenKey Tokens.New) $ fmap New $ identifier <* parens (pure ()))
     <|> (posFirst (token Tokens.Bang) $ fmap Not methodCall)
     <|> (posFirst (tokenKey Tokens.Println) $ fmap Println $ parens expression)
@@ -378,7 +468,15 @@ simpleexpression =
             predicate <- parens expression
             body <- expression
             return $ While predicate body w.position
-
+        lambda = do
+            l <- tokenKey Tokens.Lambda
+            arg <- identifier
+            _ <- token Tokens.Colon
+            typ <- typeParser
+            _ <- token Tokens.Dot
+            e <- expression
+            cast <- optional (token Tokens.Colon *> typeParser)
+            return $ Lambda arg typ e cast l.position
 
 wrap :: String -> (a -> String) -> a -> String
 wrap prefix f x = prefix ++ "(" ++ f x ++ ")"
@@ -402,7 +500,7 @@ instance ScalaShow Bool where
     scalashow = show
 
 instance ScalaShow Program where
-    scalashow (Program classes main _) = wrap "Program" (joined ",")
+    scalashow (Program classes functions main _) = wrap "Program" (joined ",")
         [ scalashow main
         , wrapList classes
         ]
@@ -449,6 +547,10 @@ instance ScalaShow Expression where
     scalashow (Println expr _) = wrap "Println" scalashow expr
     scalashow (Assign name expr _) = wrap "Assign" id $ joinPair name expr
     scalashow (Identifier i _) = scalashow i
+    scalashow (Closure _ arg t expr ret _) = wrap "Closure" (joined ",")
+        (scalashow arg: scalashow t: scalashow expr: (maybe id ((:) . scalashow) ret) [])
+    scalashow (Lambda arg t expr ret _) = wrap "Closure" (joined ",")
+        (scalashow arg: scalashow t: scalashow expr: (maybe id ((:) . scalashow) ret) [])
     scalashow other = error $ "No pattern for scalashow "++show other
 
 
@@ -476,6 +578,7 @@ instance ScalaShow Type where
     scalashow String = "StringType()"
     scalashow Unit = "UnitType()"
     scalashow (User x) = scalashow x
+    scalashow (Arrow t r) = wrap "Arrow" (joined ",") [scalashow t, scalashow r]
 
 parseCode parser code =
     let
@@ -501,6 +604,10 @@ instance WithId ClassDeclaration where
     idOf (Class{name}) = name
     setId name c = c.{name=name}
 
+instance WithId FunctionDeclaration where
+    idOf Function{name} = name
+    setId name fn = fn.{name=name}
+
 instance WithId MethodDeclaration where
     idOf (MethodDeclaration{name}) = name
     setId name v = v.{name=name}
@@ -519,6 +626,7 @@ instance Named String where
 instance Named Identifier where
     nameOf (ID n _) = n
     nameOf (Symbol _ _ _ id) = nameOf id
+    nameOf (FreeSymbol{name}) = nameOf name
 
 instance Named ClassDeclaration where
     nameOf (Class{name=id}) = nameOf id

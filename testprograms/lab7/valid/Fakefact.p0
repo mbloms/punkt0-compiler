@@ -1,0 +1,5 @@
+object Main extends App {
+    var fakefact : Int -> Int = λn : Int. n;
+    fakefact = λn : Int. n * (fakefact (n-1));
+    println(fakefact 6)
+}

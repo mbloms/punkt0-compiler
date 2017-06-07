@@ -60,7 +60,7 @@ toSet xs = fromList $ fmap (\x -> (x, ())) xs
 toSupers inheritance = fromList $ fmap (\(key, supers) -> (fst key, fmap fst supers)) (each inheritance)
 
 checkDependencies :: Program -> Analyze (HashMap String [String])
-checkDependencies (Program classes _ _)
+checkDependencies (Program classes _ _ _)
     = missing declared extends
     *> fmap setSupers (cycleChecks (inheritance extends))
         where

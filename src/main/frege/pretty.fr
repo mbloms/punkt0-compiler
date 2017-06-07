@@ -39,7 +39,10 @@ instance Pretty a => Pretty [a] where
     prettyf ( !x : !xs) = prettyf x • prettyf xs
 
 instance Pretty Program where
-    prettyf (Program classes main _) = prettyf classes • prettyf main
+    prettyf (Program classes functions main _) = prettyf classes • prettyf functions • prettyf main
+
+instance Pretty FunctionDeclaration where
+    prettyf (Function{name,expr}) = prettyf "fun " • prettyf name • prettyf '=' • prettyf expr • semicolon
 
 instance Pretty ClassDeclaration where
     prettyf !Class{name,extends,vars,methods}
@@ -67,6 +70,7 @@ instance Pretty MainDeclaration where
 
 instance Pretty Identifier where
     prettyf (ID str _) = (Word str :)
+    prettyf (FreeSymbol{name}) = prettyf name
     prettyf (Symbol i _ _ (ID str _))
         | i == -1 = ((Word (str ++ "#??")) :)
         | otherwise = ((Word (str ++ "#" ++ show i)) :)
@@ -161,6 +165,16 @@ instance Pretty Expression where
         • prettyf body
     prettyf (Assign lhs rhs _)
         = wrap Parens $ prettyf lhs • prettyf '=' • prettyf rhs
+    prettyf (Lambda name t expr (Just r) pos)
+        = wrap Parens
+        $ prettyf '\u03BB' • prettyf name • prettyf ':' • prettyf t • prettyf '.'
+        • prettyf '\n' • prettyf expr • prettyf ':' • prettyf r
+    prettyf (Lambda name t expr Nothing pos)
+        = wrap Parens
+        $ prettyf '\u03BB' • prettyf name • prettyf ':' • prettyf t • prettyf '.'
+        • prettyf '\n' • prettyf expr
+    prettyf (Closure _ name t expr r pos)
+        = prettyf (Lambda name t expr r pos)
 
 instance Pretty Type where
     prettyf Bool = prettyf "Boolean"
@@ -168,6 +182,8 @@ instance Pretty Type where
     prettyf String = prettyf "String"
     prettyf Unit = prettyf "Unit"
     prettyf (User x) = prettyf x
+    prettyf (Arrow (t@Arrow _ _) r) = wrap Parens (prettyf t) . prettyf "->" . prettyf r
+    prettyf (Arrow t r) = prettyf t . prettyf "->" . prettyf r
 
 instance Pretty BinOp where
     prettyf And = prettyf "&&"
@@ -177,6 +193,7 @@ instance Pretty BinOp where
     prettyf Plus = prettyf '+'
     prettyf Minus = prettyf '-'
     prettyf Times = prettyf '*'
+    prettyf Apply = id
     prettyf Div = prettyf '/'
 
 instance Pretty Int where
