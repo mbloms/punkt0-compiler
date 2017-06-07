@@ -1,0 +1,41 @@
+% If you did not finish what you had planned, explain here what's missing.
+
+% In any case, describe how you could further extend your compiler in the
+% direction you chose. This section should convince us that you understand the
+% challenges of writing a good compiler for high-level programming languages.
+
+In order to make the language more usable the most pressing features to implement is Algebraic Data Types and Tail Call elimination. Algebraic Data Types with pattern matching works very well together with first-class-functions and would greatly increase the expressiveness of the language. However, an implementation largely based on functions would not be feasible to use without Tail Call elimination. Tail Call optimization is also important to give a fair comparison to different implementations when benchmarking. 
+
+% Maybe something about parametric polymorphism here
+
+\subsection{Exploring alternative implementations}
+
+Because of how the natural way to store named values on the JVM is by using classes, we decided to implement closures by generating one class for each declaration. This has the implication that from the JVM point of view, every lambda has its own type. We considered different solutions for this problem, one solution being generating abstract classes to represent all function types present in the program. The problem with this solution however is that it potentially introduces multiple inheritance.
+
+\noindent
+The function $f$:
+$$
+f : Vehicle \rightarrow Vehicle
+$$
+is a subtype of 
+$$
+g : Boat \rightarrow Vehicle
+$$
+but also of 
+$$
+h : Car \rightarrow Vehicle
+$$
+
+Our solution is similar to this idea, but does not differentiate between objects. Instead we rely on our own type check and do casts where necessary.
+
+It is evident that the JVM is mainly designed to be the target of Java, and thus not an optimal target language for a language that relies heavily on first-class-functions. Because of this, the best way to implement closures and functions is not necessarily the most obvious. In Java 7, the invokedynamic instruction was introduced to increase support for dynamically typed languages. These are also used by Javas own lambda-expressions.
+
+Different approaches have different limitations and it is important to compare them.
+
+\subsection{Exploring alternatives to the JVM}
+
+The JVM is a great tool for its purposes and comes with its advantages, but also has some drawbacks.
+
+Being able to mix code written in different languages makes it easier to use the tools best suited for the problem. The extra layer of abstraction is also great for keeping an implementation consistent across different platforms. The problem with the abstraction is that it limits the hosted language and removes the power to make some low-level optimizations. 
+
+Using referential transparency and immutable data makes it possible to make optimizations that are difficult to make in an imperative language. If the language would be developed into a purely functional language, there are many optimizations that would be difficult to do directly on the JVM. Thus, developing a different target language or introducing an intermediate language before compiling to the JVM would make for an interesting extension.

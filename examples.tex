@@ -1,0 +1,146 @@
+% Give code examples where your extension is useful, and describe how they work with it. Make sure you include examples where the most intricate features of your extension are used, so that we have an immediate understanding of what the challenges are.
+
+\begin{lstlisting}[caption={$\lambda$-expression assigned to variable declaration}]
+var add = λx : Int. λy : Int. x + y;
+\end{lstlisting}
+
+\begin{lstlisting}[caption=Recursive function declaration computing the factorial of a number $n$,label=factorial]
+fun fact = λn : Int.
+    if (n==0) 1 else n * (fact (n-1)) : Int
+\end{lstlisting}
+
+\begin{lstlisting}[caption={Method taking a function as a parameter}]
+def method(f : Int -> Int, x : Int) : Int = {
+  f x
+}
+\end{lstlisting}
+
+\begin{lstlisting}[caption=Program showing multiple features of the $\lambda$-calculus interfacing with classes,label=intlist]
+class IntList {
+    var head : Int = 0;
+    var tail : IntList = null;
+    var set : Boolean = false;
+    def cons(h : Int, t : IntList) : IntList = {
+        if (set) {
+            println("List is immutable, cannot write twice");
+            this
+        }
+        else {
+            head = h;
+            tail = t;
+            set = true;
+            this
+        }
+    }
+    def head() : Int = {head}
+    def tail() : IntList = {tail}
+}
+
+fun fact = λn : Int.
+    if (n==0) 1 else n * (fact (n-1)) : Int
+
+fun cons = λh : Int. λl : IntList.
+    new IntList().cons(h,l) : IntList
+
+fun map = λf : Int -> Int. λl : IntList.
+     if (l==null)
+        l
+     else
+        cons (f l.head()) (map f l.tail()) : IntList
+
+fun toString = λl : IntList.
+    if (l==null)
+        "Nil"
+    else
+        l.head() + " :: " + toString l.tail() : String
+
+fun foldr = λf : Int -> Int -> Int. λx : Int. λxs : IntList.
+      if (xs == null)
+        x
+      else
+        foldr f (f xs.head() x) xs.tail() : Int;
+
+class Fun {
+  var foldr : (Int -> Int -> Int) -> Int -> IntList -> Int 
+  	= foldr;
+  var add : Int -> Int -> Int = λx : Int. λy : Int. x + y;
+  def sum(xs : IntList) : Int = {
+     foldr add 0 xs
+  }
+}
+
+object Main extends App {
+    var map : (Int -> Int) -> IntList -> IntList = map;
+    println(fact $ 6); // 720
+    println (toString $ cons 1 null); // 1 :: Nil
+    println(toString
+    	$ map fact
+        $ cons 1
+        $ cons 3
+        $ cons 6 null); // 1 :: 6 :: 720 :: Nil
+    println(new Fun().sum(
+    	cons 4
+        $ cons 8
+        $ cons 7 null)) // 19
+}
+\end{lstlisting}
+
+Listing \ref{intlist} shows a program combining features of the $\lambda$-calculus with other features of the Punkt0 language such as methods and classes as well as String concatenation.
+
+This example shows that given the introduction of $\lambda$-expressions and function declarations it is possible to write simple functional code similar to that which is used in real-world functional programming languages such as ML, Scala or Haskell. The type system is however too restrictive to write due to the lack of parametric polymorphism which severely limits the usefulness of the \texttt{map} and \texttt{foldr} functions. 
+
+\begin{lstlisting}[caption=Example showing edge case of typing rules,label=null]
+class Car {}
+class Circle {}
+object Main extends App {
+    var car : Car -> Int -> Int = λc : Car. λx : Int. x;
+    var circle : Circle -> Int -> Int = λc : Circle. λx : Int. x;
+    println((if (true) car else circle) null 4) // 4
+}
+\end{lstlisting}
+
+Listing \ref{null} shows an edge case in the type checker implied by the least upper bound on function types. Writing anything in place of \textbf{null} results in a type error. This is due to the greatest lower bound on the classes \texttt{Car} and \texttt{Circle} is the \textbf{null} type or the $\bot$ type on objects written as \texttt{TBottomRef} in our implementation.
+
+\noindent
+\begin{minipage}{0.95\linewidth}
+\begin{lstlisting}[caption=Int cannot be applied to Int, label=non-callable]
+object Main extends App {
+    println(5 1)
+}
+/*
+Error: Cannot perform operation (Apply, TInt, TInt) (2:13)
+    println(5 1)
+*/
+\end{lstlisting}
+\end{minipage}
+
+Listing \ref{non-callable} shows that applying arguments to types other than function types result in type errors.
+
+\noindent
+\begin{minipage}{0.95\linewidth}
+\begin{lstlisting}[caption=Variables refer to previous definition in $\lambda$ body for assignment, label=assign-lambda]
+object Main extends App {
+    var fakefact : Int -> Int = λn : Int. n;
+    fakefact = λn : Int.
+    	if (n==0) 1
+    	else n * (fakefact (n-1));
+    println(fakefact 6) // 30 (Not 720)
+}
+\end{lstlisting}
+\end{minipage}
+
+Listing \ref{assign-lambda} shows a consequence of the free variables being instantiated on creation of a closure. The creation of closures is further discussed in section \ref{sec:closures}. Here the occurrence of \textit{fakefact} in the body of the $\lambda$-expression on line 3 refers to the previous definition at line 2 of the listing resulting in the updated definition not becoming recursive after the assignment.
+
+\begin{lstlisting}[label=unit-functions,caption=Functions taking and returning values of type Unit]
+fun print = λx : Unit. println("Hello") : Unit;
+
+object Main extends App {
+    var world : Unit -> Unit = λy : Unit. println("world");
+    world $ print $ ({}) // Hello
+                       // world
+}
+\end{lstlisting}
+
+Listing \ref{unit-functions} shows an example of two $\lambda$-expressions with Unit type as both input and return argument. Since the Unit type can never be stored as a value in the JVM extra care had to be taken to not leave the stack in an inconsistent state. Furthermore no methods can take values of type "V" in the JVM. In the construction of closure and function declaration classes the method arguments had to exclude arguments of type Unit.
+
+% This section should convince us that you understand how your extension can be useful and that you thought about the corner cases.

@@ -1,0 +1,77 @@
+Functional programming languages allows the programmer to write more compositional and modularized code compared to imperative programming languages leading to fewer bugs and more easily written code \cite{hughes1989functional}. Functional programming have yielded models that have been shown to result in highly parallelizable models that can process large data sets such as the MapReduce algorithm \cite{guo2004mapreduce}.
+
+While functional programming have become increasingly popular in the last decade, the practice of functional programming has a long history. The history of functional programming goes back even further than that of imperative programming.
+
+The first functional programming language was introduced before the advent of computer hardware. In the 1930s the logician Alonzo Church \cite{church1932set} introduced $\lambda$-calculus as a foundation of logic. Turing later showed an equivalence between the Turing machine and the $\lambda$-calculus
+\cite{turing1937computability}. Since the introduction of computers and programming the $\lambda$-calculus has also been used as a programming language. In modern programming languages such as Python, JavaScript, Scala and Haskell the $\lambda$-calculus can be found, however with slightly different syntax compared to the original definition by Church.
+
+The $\lambda$-calculus as a programming language is very small. It consists of only three syntactic constructs.
+
+\begin{itemize}
+\item Variables $x$
+\item $\lambda$-abstractions $\lambda x.\ e$
+\item Applications $e\ y$
+\end{itemize}
+
+The $\lambda$-abstractions can be thought of as functions taking exactly one parameter and the applications as evaluation of the functions created by the $\lambda$-abstractions applied to the right-hand side argument. In the expression $e$ of the $\lambda$-abstraction $\lambda x.\ e$ any occurrence of $x$ is bound to the argument of the abstraction. This allows the modeling of functions taking multiple arguments. One such example is the addition function $\lambda x. \lambda y. x + y$. In this example the $\lambda$-calculus has been extended with addition using the $+$ operator.
+
+In our implementation we extend the $\lambda$-calculus programming language with types. This restriction imposed on the $\lambda$-calculus means that the equivalence with the Turing machine no longer holds and our $\lambda$-expressions are not Turing complete since we cannot represent the fixed point recursion \textit{Y-combinator}.
+$Y = \lambda f. (\lambda x. (f\ x\ x)) (\lambda x. (f\ x\ x))$. We also allow the expression body present in the right-hand side of $\lambda$-abstractions to be any expression in the \textit{Punkt0} language extended with $\lambda$-expressions.
+
+In order to represent $\lambda$-expressions, the parser is extended with the following syntax:
+
+%Tanke: Borde vi skriva `(: Type )?` istället för två rader?.
+\begin{lstlisting}
+Type :: =
+    ...
+    | Type -> Type
+    | (Type)
+Expression ::=
+   ...
+   | λ Identifier : Type. Expression (: Type)?
+   | Expression $ Expression
+   | Expression Expression
+\end{lstlisting}
+where the $\$$ operator is right-associative and has the lowest precedence in the language, and the whitespace application is left-associative and has higher precedence than the binary operators $*$ and $/$, but lower precedence than method calls. These two operators are used to perform applications onto $\lambda$-abstractions. All $\lambda$-abstractions are required to have the type of their argument annotated. An optional annotation of the resulting type of the expression is also allowed. In order to allow the writing of recursive functions we also introduce a new top-level non-terminal \textit{FunctionDeclaration}. This is further explored in the section \ref{sec:functions}. FunctionDeclarations have the following syntax:
+
+\begin{lstlisting}
+FunctionDeclaration ::= fun Identifier = Expression (;)?
+\end{lstlisting}
+The optional semi-colon is included for symmetry with variable declarations.
+
+The non-terminal \textit{Program} is thus replaced with the following syntax:
+\begin{lstlisting}
+Program ::= ( FunctionDeclaration | ClassDeclaration )*
+	MainDeclaration
+\end{lstlisting}
+
+The type checker is extended with the following rules:
+
+\bigskip
+\noindent
+\framebox{\begin{mathpar}
+\inferrule*[right=T-$\lambda$]
+{\Gamma, x :T \vdash e : R}
+{\Gamma \vdash \lambda x : T. e : T \rightarrow R} \\
+\inferrule*[right=T-Annotated-$\lambda$]
+{\Gamma, x : T \vdash e : R \\ R <: R'}
+{\Gamma \vdash (\lambda x : T. e : R') : T \rightarrow R'} \\
+\inferrule*[right=T-$\lambda_{<:}$]
+{T :> T' \\ R <: R'}
+{(T \rightarrow R) <: (T' \rightarrow R')} \\
+\inferrule*[right=T-$\$$]
+{\Gamma \vdash x : T' \\ \Gamma \vdash f : T \rightarrow R \\ T :> T'}
+{\Gamma \vdash (f\ \$\ x) : R} \\
+\inferrule*[right=T-App]
+{\Gamma \vdash x : T' \\ \Gamma \vdash f : T \rightarrow R \\ T :> T'}
+{\Gamma \vdash (f \ x) : R} \\
+\inferrule*[right=T-Fun]
+{\Gamma \vdash e : T \rightarrow R}
+{\Gamma \vdash \textbf{fun}\ x = e : T \rightarrow R} \\
+\inferrule*[right=T-Lub-$\lambda$]
+{T = glb(T_1,T_2) \\ R = lub(R_1, R_2)}
+{lub(T_1 \rightarrow R_1, T_2 \rightarrow R_2) = T \rightarrow R}
+\end{mathpar}}
+\bigskip
+
+\textsc{T-Lub-$\lambda$} follows from \textsc{T-$\lambda_{<:}$} but is nonetheless explicitly stated for clarity.

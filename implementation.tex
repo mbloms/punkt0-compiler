@@ -1,0 +1,202 @@
+% This is a very important section, you explain to us how you made it work.
+
+\subsection{Theoretical Background}
+% If you are using theoretical concepts, explain them first in this subsection.
+% Even if they come from the course (e.g., lattices), try to explain the essential
+% points \emph{in your own words}. Cite any reference work you used like this
+% \cite{TigerBook}. This should convince us that you know the theory behind what
+% you coded.
+
+\subsubsection{$\lambda$-lifting}
+$\lambda$-lifting is the process of transforming a program such that all $\lambda$-expressions can be represented independently of one another. \cite{Johnsson1985,lambdalift}. The process is split into two phases.
+\begin{enumerate}
+\item $\eta$-expansion
+\item letrec floating
+\end{enumerate}
+In the $\eta$-expansion phase free variables in the body of a $\lambda$-expression are added as additional arguments to the $\lambda$ and all call sites are fully saturated. Then in the letrec floating phase all functions not referring to any local free variables are lifted up to their enclosing scope. \cite{Johnsson1985} This will eventually result in all functions being globally declared with no free variables. However, this approach requires to know of all call sites and thus, one cannot independently compile a library that returns a function. 
+
+\subsubsection{Closure Conversion}
+
+A closure is an open $\lambda$-expression together with an environment that gives values to all its free variables \cite{sussman1998scheme}. The process of closure conversion is similar to that of $\lambda$-lifting but the approach is simpler. Each $\lambda$-expression is associated with an environment and all free variables in the body of the $\lambda$-expression refer to the values in the environment as of the time of creation of the closure. By adding this environment to each $\lambda$-expression the $\lambda$-expressions become independent and all closures can be lifted to the global scope.
+
+\subsubsection{Recursion Schemes and base functors}
+
+A recursive algebraic data type can be defined as the least fixed point on a functor. The functor that yields the Expression data type when applied to its fixed point is referred to in this report as the base functor of the Expression data type. \cite{meijer1991functional}
+
+Given the expression data type:
+\begin{lstlisting}[language=Haskell]
+data Expr = Number Int | Add Expr Expr
+\end{lstlisting}
+we find the base functor by replacing all recursive definitions
+with definitions on a parametric type variable. This yields the
+following data type and functor instance:
+\begin{lstlisting}[language=Haskell]
+data ExprF a = Number Int | Add a a
+instance Functor ExprF where
+    fmap f (Number n) = Number n
+    fmap f (Add x y) = Add (f x) (f y)
+\end{lstlisting}
+The fixed point on ExprF is now isomorphic to the original data type Expr.
+
+The reason for using this slightly more complex representation is that it allows for more general recursion and traversal throughout the expression tree. One such recursion scheme is the catamorphism which is a bottom-up
+traversal on the expression. The catamorphism can be defined as follows:
+\begin{lstlisting}
+cataExpr :: (ExprF a -> a) -> Expr -> a
+cataExpr algebra 
+    = algebra
+    . fmap (cataExpr algebra)
+    . projectExpr
+\end{lstlisting}
+where projectExpr is of type $Expr \rightarrow ExprF\ Expr$, converting
+the top layer of an expression into the base functor ExprF containing the subtrees of the original expression. The argument algebra is an algebra of type $ExprF\ a \rightarrow a$ computing the evaluation of the expression at
+a single layer where all subtrees have already been evaluated into the resulting type $a$.
+
+Another recursion scheme named a paramorphism, also being performed in a
+bottom-up order but this recursion scheme includes a reference to the original expression when evaluating the algebra. The paramorphism on ExprF
+can be defined as such:
+
+\noindent
+\begin{minipage}{0.95\linewidth}
+\begin{lstlisting}
+paraExpr :: (ExprF (Expr, a) -> a) -> Expr -> a
+paraExpr algebra
+    = algebra
+    . fmap (\expr -> (expr, paraExpr algebra expr))
+    . projectExpr
+\end{lstlisting}
+\end{minipage}
+
+The base functor representation of expressions can also be useful in mitigating refactoring due to the "expression problem" where one wishes
+to both extend expressions with new functionality and new representations without rewriting existing code. \cite{swierstra2008data}
+
+%\begin{itemize}
+%\item $\lambda$-lifting
+%\item closure conversion
+%\item expression problem?
+%\item Cata- and paramorphism and base functors
+%\item Initial algebras  \cite{swierstra2008data}
+%\item Functions on JVM as classes?
+%\end{itemize}
+
+\subsection{Function Declarations}\label{sec:functions}
+
+Function declarations were introduced to solve the problem of
+recursively defined functions. A variable declaration must be initialized
+with a constant expression and $\lambda$-expressions are deemed constant
+only if they do not refer to any free variables a variable declaration cannot be initialized with a recursive definition since the recursive call
+requires the free variable of the declaration itself. Furthermore, this
+variable cannot be thought of as bound since the variable may be reassigned
+at a later stage limiting the notion of constantness. Also, as listing \ref{assign-lambda} shows the $\lambda$-expression does not become recursive after re-assigning it with the identifier of the variable pointing to the $\lambda$-expression in the body of the expression since the identifier refers to the previous declaration of the variable when
+constructing its closure.
+
+Immutable function declarations, however, solve this problem. Since the
+function declarations cannot be re-assigned they can be represented by
+a class on the JVM. Any identifier referring to a function declaration can
+be replaced with a construction of an instance of the class. This in turn means that a function such as the factorial function presented in listing \ref{factorial} can be written.
+
+\subsection{Symbols}
+
+Unique symbols were created for each argument of a lambda expression in the name analysis phase. Hence, the transformation of tagging the symbols in the AST was extended to also include all expressions.
+
+Because all symbols are required to have their type statically known before type checking the $\lambda$-expression at the right-hand side of function declarations are required to have their resulting type annotated. 
+
+The environment in the name analysis phase was extended with one more argument of type $Maybe\ (String,\\ Identifier)$ storing the argument of the innermost argument to a $\lambda$-expression. This was required in order to differentiate between the bound variable and free
+variables as this becomes important in the code generation phase. This is further explored in section \ref{sec:codegen}
+
+\subsection{Shadowing}
+
+Function declarations are allowed to be shadowed by variable declarations. However, in the right-hand side of a variable declaration the identifier still refers to the function declaration being shadowed.
+
+\subsection{Closure conversion and $\lambda$-expressions}\label{sec:closures}
+
+In our implementation $\lambda$-expressions were lifted into the global scope using closure conversion. The environment of the closure was implemented using fields
+in a class instance. The exact format is further explained in section \ref{sec:closure-classes}.
+
+Closure conversion was performed with a catamorphism on an algebra of type $ExpressionF\ Expression\\ \rightarrow Expression$ where $ExpressionF$ is the base functor of the Expression data type. The algebra replaces every occurrence of a lambda expression with its closure (i.e. the lambda expression with the set of free variables explicit in the AST). The free variables of a given expression are also found with a catamorphism. This catamorphism is of the type $ExpressionF\ (\\ Set\ Identifier) \rightarrow Set\ Identifier$. The free variables are found as the union of all identifiers minus the variables bound in $\lambda$-expressions. Identifiers referring to function declarations were not deemed to be free variables since the function declaration can be constructed using the \textbf{new} keyword and the function declaration not being re-assignable.
+
+The closures were lifted to the global scope using a paramorphism of type $ExpressionF\ (Expression,\\\ [Closure]) \rightarrow [Closure]$. Here the original expression is required in order to re-create the closure that should be lifted for the given node in the AST.
+
+\begin{lstlisting}[language=Haskell]
+lambdaToClosure :: Expression -> Expression
+lambdaToClosure = cataExpr alg where
+    alg (lambda@LambdaF arg typ e r pos)
+        = Closure (freeVars $ toExpr lambda)
+        	arg typ e r pos
+    alg x = toExpr x
+
+closureConvert :: Program -> Program
+closureConvert = transformExpressions lambdaToClosure
+
+freeVars :: Expression -> Set Identifier
+freeVars = cataExpr alg where
+    alg (IdentifierF i _) = singleton i
+    alg (ClosureF{free}) = free
+    alg (LambdaF x t expr _ _)
+    	= expr `difference` (singleton x)
+    alg e = mergeAlg e
+
+liftClosures :: Expression -> [Closure]
+liftClosures = paraExpr alg where
+    alg (ClosureF free x t (expr, lifted) r pos)
+        = (Closure free x t expr r pos) : lifted
+    alg e = mergeAlg (fmap snd e)
+
+closureLifting :: Program -> [Closure]
+closureLifting = collectProgram liftClosures
+\end{lstlisting}
+
+The remaining cases in the algebra for lifting closures simply concatenate the lists of lifted closures from the subtrees. The lifting of closures for a complete program is the concatenation of the lifting of closures for every expression in the program. 
+
+\subsection{Type Checking}
+
+Due to the introduction of the contravariance in the argument for the subtyping relation of function types rules, the greatest lower bound on the subtyping relation was defined.
+
+\subsection{Code Generation} \label{sec:codegen}
+
+\subsubsection{Abstract Classes}
+16 abstract classes were generated for functions. The abstract classes
+were created from the cartesian product of the three non-object types Int, Bool and Unit and the object type. Each of the abstract classes have an
+apply method with argument and return type corresponding to the types. For example the abstract class of functions taking Ints to Booleans \texttt{FunctionIB\$\$} have the following signature of its apply method:
+\begin{lstlisting}
+abstract boolean apply(int x);
+\end{lstlisting}
+In order to add abstract methods to a class the code generation library \texttt{cafebabe} was forked and the required code added.
+
+\subsubsection{Closure Classes}\label{sec:closure-classes}
+For each of the closures lifted into the global scope a class was generated. This class extended the abstract class corresponding to the
+argument type and return type of the function. The free variables of the
+closure were added as fields (class members) of the same type as the free variables. A constructor taking
+the same amount of arguments as free variables was added initializing the
+fields. The body of the closure was compiled into the apply method where
+the bound variable was found as the first local parameter (iload 1 or aload 1) and the free variables were found by name [aload 0, getfield fieldname].
+
+\subsubsection{Closure Expressions}
+Any occurrence of a closure inside an expression was compiled as the construction of the class corresponding to that closure with all free
+variables applied to the constructor. I.e. a closure with $n$ free variables of types T1 through Tn is compiled into [\textbf{new} closurename, dup, invokespecial "<init>" (T1T2T3..Tn)V].
+
+\subsubsection{Function Declarations}
+
+Function declaration were compiled into classes with one
+field. This field was initialized to the $\lambda$-expression on the right-hand side of the equals sign of the declaration in the constructor. An apply method of the
+same signature as that of the $\lambda$-expression was added and the code contained in the apply method was a call to the $\lambda$-expression followed by a return.
+
+%\begin{itemize}
+%\item 16 Abstract Classes FunctionIO\$\$, Function OB\$\$ etc.
+%\item Lifted closures compile to classes with free variables being class members (fields). Closures extend abstract class with correct type.
+%\item Closures in expression compile to construction of the closure class with new and free variables applied as arguments
+%\item Function declarations compile to classes with an apply method instantly calling the closure of the right hand side
+%\item Free variables are pulled from the closure class with [ALoad 0, GetField name]
+%\item Lambda argument is taken from the method argument with [*Load 1]
+%\end{itemize}
+
+%\subsection{Implementation Details}
+% Describe all non-obvious tricks you used. Tell us what you thought was hard and
+% why. If it took you time to figure out the solution to a problem, it probably
+%means it wasn't easy and you should definitely describe the solution in detail
+% here. If you used what you think is a cool algorithm for some problem, tell us.
+% Do not however spend time describing trivial things (we know what a tree traversal
+% is, for instance).
+
+% After reading this section, we should be convinced that you knew what you were
+% doing when you wrote your extension, and that you put some extra consideration
+% for the harder parts.
