@@ -46,6 +46,7 @@ data AnalyzeError
     | Shadow Identifier Identifier
     | NonConstantDeclaration Position
     | ParamAssign String Position
+    | FunctionAssign String Position
     | TypeError TypeError
 derive Show AnalyzeError
 derive Eq AnalyzeError
@@ -95,6 +96,8 @@ showAnalyzeError input (NonConstantDeclaration p)
     = showErrorAt (lines input) ("Expression in variable declaration must be constant.") p
 showAnalyzeError input (ParamAssign v p)
     = showErrorAt (lines input) ("'" ++ v ++ "' is a method parameter and cannot be reassigned.") p
+showAnalyzeError input (FunctionAssign v p)
+    = showErrorAt (lines input) ("'" ++ v ++ "' is a function declaration and cannot be reassigned.") p
 showAnalyzeError input (InvalidThis p)
     = showErrorAt (lines input) ("Invalid this...") p
 

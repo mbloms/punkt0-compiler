@@ -2,7 +2,7 @@
 
 ## Build
 ```
-sbt compile
+sbt clean compile
 ```
 
 ## Running
