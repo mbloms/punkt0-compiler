@@ -13,7 +13,9 @@ data Environment = Env
     { classes :: HashMap String Identifier
     , methods :: HashMap String Identifier
     , vars    :: HashMap String Identifier
+    , lambdaVar :: Maybe (String, Identifier)
     }
+derive Show Environment
 
 namedMap :: (Named a) => [a] -> HashMap String a
 namedMap xs = fromList $ fmap (\x -> (nameOf x, x)) xs
@@ -81,11 +83,21 @@ interfaces classes = result
         iface (cls@(Class _ Nothing _ _ _))
             = ifaceWhere (empty, empty, empty) cls
 
+lookupLambdaVar :: Environment -> String -> Analyze Identifier
+lookupLambdaVar Env{lambdaVar=Nothing} _ = ALeft []
+lookupLambdaVar Env{lambdaVar=Just (name, id)} x
+    | x == name = ARight id
+    | otherwise = ALeft []
+
 lookupVar :: Environment -> Identifier -> Analyze Identifier
 lookupVar env (sym@(Symbol{})) = pure sym -- already a symbol, do not update
-lookupVar env (ID var pos)
+lookupVar (env@Env{lambdaVar=Nothing}) (ID var pos)
     = maybe (report1 $ NotDeclared var pos) pure (lookup var env.vars)
-
+lookupVar (env@Env{lambdaVar=Just (x,innerLambda)}) (ID var pos)
+    = lookupLambdaVar env (nameOf var)
+    <|> ( FreeSymbol innerLambda
+        <$> maybe (report1 $ NotDeclared var pos) pure (lookup var env.vars)
+        )
 lookupMethod :: Environment -> Identifier -> Analyze Identifier
 lookupMethod env (sym@(Symbol{})) = pure sym -- already a symbol, do not update
 lookupMethod env (ID var pos)
@@ -124,6 +136,21 @@ analyzeExpr _ (e@LitNull{}) = pure e
 analyzeExpr _ (e@LitTrue{}) = pure e
 analyzeExpr _ (e@LitFalse{}) = pure e
 analyzeExpr _ (e@Typed{}) = pure e
+analyzeExpr env (Closure free (arg@Symbol{}) t expr r pos)
+    = case freeCheck of
+        ALeft errors -> ALeft errors
+        ARight free' -> (ARight $ Closure (fromList free') arg t) <*> expr' <*> pure r <*> pure pos
+    where
+        lookupFree :: (Identifier, ()) -> Analyze (Identifier, ())
+        lookupFree (i, ()) = case lookupVar env i of
+            ARight i' -> ARight (i', ())
+            ALeft errors -> ALeft errors
+        freeCheck :: Analyze [(Identifier, ())]
+        freeCheck = fmap (filter nonFunction) (traverse lookupFree (each free))
+        nonFunction ((Symbol _ FunctionSymbol _ _), ()) = false
+        nonFunction _ = true
+        env' = env.{vars= insert (nameOf arg) arg env.vars, lambdaVar = Just (nameOf arg, arg.{symType=LocalSymbol Param 1})}
+        expr' = analyzeExpr env' expr
 
 analyzeAssign :: Identifier -> Analyze ()
 analyzeAssign (Symbol _ (LocalSymbol Param _) _ i) = report1 (ParamAssign (nameOf i) (position i))
@@ -137,6 +164,14 @@ analyzeVar env (var@Var{expr,varType,pos}) = typeExists *> case expr of
     LitFalse{} -> pure var
     LitNull{} -> pure var
     New{} -> fmap (var.{expr=}) (analyzeExpr env expr)
+    (Identifier i pos) -> case lookupVar env i of
+        ARight (i'@Symbol _ FunctionSymbol _ _) -> pure var.{expr=Identifier i' pos}
+        ALeft errors -> ALeft errors
+        _ -> report1 $ NonConstantDeclaration pos
+    Closure{free} ->
+        if null free
+            then fmap (var.{expr=}) (analyzeExpr env expr)
+            else report1 (NonConstantDeclaration (position expr))
     _ -> report1 (NonConstantDeclaration (position expr))
     where
         typeExists = case varType of
@@ -156,7 +191,7 @@ analyzeMethod env (m@MethodDeclaration{vars,args,exprs})
 analyzeClass :: Interfaces -> Environment -> ClassDeclaration -> Analyze ClassDeclaration
 analyzeClass interfaces env (Class name extends vars methods pos)
     = fmap (Class name extends)
-        (traverse (analyzeVar env') vars)
+        (traverse (analyzeVar env) vars)
         <*> (traverse (analyzeMethod env') methods)
         <*> pure pos
     where
@@ -168,29 +203,35 @@ analyzeMain env (m@Main{vars, body})
     = noDups declared
     *> fmap (\body vars -> m.{body=body,vars=vars})
         (traverse (analyzeExpr env') body)
-        <*> (traverse (analyzeVar env') vars)
+        <*> (traverse (analyzeVar env) vars)
     where
         declared = fmap idOf vars
-        env' = env.{vars=namedMap declared}
+        env' = env.{vars=namedMap declared `union` env.vars}
+
+analyzeFun env (fn@Function{expr}) = fmap (fn.{expr=}) (analyzeExpr env expr)
 
 analyzeNames' :: Interfaces -> Program -> Analyze Program
-analyzeNames' interfaces (Program classes main pos)
-    = noDups (fmap idOf classes) *> fmap Program
-        (traverse (analyzeClass interfaces env) classes)
+analyzeNames' interfaces (Program classes functions main pos)
+    = noDups (fmap idOf classes ++ fmap idOf functions) *>
+        (Program
+        <$> traverse (analyzeClass interfaces env) classes
+        <*> traverse (analyzeFun env) functions
         <*> (analyzeMain env main)
-        <*> pure pos
+        <*> pure pos)
     where
         classNames = namedMap (fmap idOf classes)
-        env = Env {classes = classNames, methods = empty, vars = empty}
+        functionNames = namedMap (fmap idOf functions)
+        env = Env {classes = classNames, methods = empty, vars = functionNames, lambdaVar = Nothing}
 
 --- | Analyze names and replace identifiers
 --- | with their bound symbols.
 analyzeNames :: Program -> Analyze (Interfaces, Program)
-analyzeNames (program@Program classes main pos)
+analyzeNames (program@Program classes functions main pos)
     = case sequenceA (interfaces classes) of
         ALeft errors -> ALeft errors <* analyzeMain env main
             where
                 classNames = namedMap (fmap idOf classes)
-                env = Env {classes = classNames, methods = empty, vars = empty}
-        ARight result -> fmap (\p -> (result, p)) $ analyzeNames' result (Program classes main pos)
+                functionNames = namedMap (fmap idOf functions)
+                env = Env {classes = classNames, methods = empty, vars = functionNames, lambdaVar = Nothing}
+        ARight result -> fmap (\p -> (result, p)) $ analyzeNames' result program
 

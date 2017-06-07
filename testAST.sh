@@ -2,12 +2,12 @@
 for file in testprograms/lab3/valid/*.p0;
 do
     echo $file;
-    scala -cp ./target/scala-2.11/classes:./frege.jar punkt0.Main --ast $file | diff - $file.ast
+    java -cp ./target/scala-2.11/classes:./frege.jar punkt0.Main --ast $file | diff - $file.ast || exit 1
 done;
 for file in testprograms/lab3/invalid/*.p0;
 do
     echo $file;
-    output=`scala -cp ./target/scala-2.11/classes:./frege.jar punkt0.Main --ast $file 2>&1 >/dev/null`;
+    output=`java -cp ./target/scala-2.11/classes:./frege.jar punkt0.Main --ast $file 2>&1 >/dev/null`;
     if [ $? -ne 1 ]
     then
         echo 'Exit code not 1';

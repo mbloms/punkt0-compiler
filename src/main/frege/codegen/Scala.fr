@@ -27,11 +27,15 @@ data ClassFile = mutable native cafebabe.ClassFile where
     native addField :: ClassFile -> String -> String -> IO FieldHandler
     native addConstructor :: ClassFile -> ScalaList String -> IO MethodHandler
     native addMethod :: ClassFile -> String -> String -> ScalaList String -> IO MethodHandler
+    native addAbstractMethod :: ClassFile -> String -> String -> ScalaList String -> IO ()
+    native getFlags :: ClassFile -> IO Short
+    native setFlags :: ClassFile -> Short -> IO ()
 
 data FieldHandler = mutable native cafebabe.FieldHandler
 
 data MethodHandler = mutable native cafebabe.MethodHandler where
     native codeHandler :: MethodHandler -> IO CodeHandler
+    native setFlags :: MethodHandler -> Short -> IO ()
 
 data ByteCode = pure native "cafebabe.AbstractByteCodes.AbstractByteCode"
 
@@ -83,6 +87,12 @@ data ScalaInvokeSpecial = native "cafebabe.AbstractByteCodes$InvokeSpecial$" whe
 data ScalaNew = native "cafebabe.AbstractByteCodes$DefaultNew$" where
     pure native apply "cafebabe.AbstractByteCodes.DefaultNew$.MODULE$.apply" :: String -> CodeGenerator
 
+data ScalaCreateNew = native "cafebabe.AbstractByteCodes$New$" where
+    pure native apply "cafebabe.AbstractByteCodes.New$.MODULE$.apply" :: String -> CodeGenerator
+
+data ScalaCheckCast = native "cafebabe.AbstractByteCodes$CheckCast$" where
+    pure native apply "cafebabe.AbstractByteCodes.CheckCast$.MODULE$.apply" :: String -> CodeGenerator
+
 data ScalaLabel = native "cafebabe.AbstractByteCodes$Label$" where
     pure native apply "cafebabe.AbstractByteCodes.Label$.MODULE$.apply" :: String -> ByteCode
 
@@ -131,6 +141,9 @@ data ScalaSWAP = native "cafebabe.ByteCodes.SWAP$" where
 data ScalaPOP = native "cafebabe.ByteCodes.POP$" where
     pure native o "cafebabe.ByteCodes.POP$.MODULE$" :: ByteCode
 
+data ScalaNOP = native "cafebabe.ByteCodes.NOP$" where
+    pure native o "cafebabe.ByteCodes.NOP$.MODULE$" :: ByteCode
+
 data ScalaACONST_NULL = native "cafebabe.ByteCodes.ACONST_NULL$" where
     pure native o "cafebabe.ByteCodes.ACONST_NULL$.MODULE$" :: ByteCode
 
@@ -153,13 +166,20 @@ data ScalaBuffer t = native scala.collection.mutable.Buffer {t} where
 data JavaConversions t = native scala.collection.JavaConversions {t} where
     native asScalaBuffer "scala.collection.JavaConversions.asScalaBuffer" :: Mutable s (List t) -> ST s (Mutable s (ScalaBuffer t))
 
+javaClass :: TType -> String
+javaClass (TClass c) = c
+javaClass (TArrow t r) = superFunction t r
+javaClass TAnyRef = "java/lang/Object"
+javaClass TString = "java/lang/String"
+
 javaType :: TType -> String
-javaType (TMethod (args, ret)) = "(" ++ concat (fmap  javaType args) ++ ")" ++ javaType ret
-javaType TString = "Ljava/lang/String;"
+javaType (TMethod (args, ret)) = "(" ++ concat (fmap javaType nonVoid) ++ ")" ++ javaType ret
+    where
+        nonVoid = filter (/= TUnit) args
 javaType TInt = "I"
 javaType TBool = "Z"
-javaType (TClass c) = "L" ++ c ++ ";"
 javaType TUnit = "V"
+javaType t = "L" ++ javaClass t ++ ";"
 
 data Gen
     = Gen CodeGenerator
@@ -179,6 +199,7 @@ getScalaI (PutField c m t) = Gen $ ScalaPutField.apply c m (javaType t)
 getScalaI (Invoke c m t) = Gen $ ScalaInvoke.apply c m (javaType t)
 getScalaI (InvokeSpecial c m t) = Gen $ ScalaInvokeSpecial.apply c m (javaType t)
 getScalaI (DefaultNew c) = Gen $ ScalaNew.apply c
+getScalaI (CreateNew c) = Gen $ ScalaCreateNew.apply c
 getScalaI (Label label) = Code $ ScalaLabel.apply label
 getScalaI (Goto label) = Code $ ScalaGoto.apply label
 getScalaI (IfNe elseLabel) = Code $ ScalaIfNe.apply elseLabel
@@ -193,8 +214,10 @@ getScalaI IXOR = Code $ ScalaIXOR.o
 getScalaI IUSHR = Code $ ScalaIUSHR.o
 getScalaI Swap = Code $ ScalaSWAP.o
 getScalaI Pop = Code $ ScalaPOP.o
+getScalaI Noop = Code $ ScalaNOP.o
 getScalaI (If_ACmpEq elseLabel) = Code $ ScalaIf_ACmpEq.apply elseLabel
 getScalaI (If_ICmpLt ltLabel) = Code $ ScalaIf_ICmpLt.apply ltLabel
 getScalaI ACONST_NULL = Code $ ScalaACONST_NULL.o
 getScalaI Duplicate = Code $ ScalaDUP.o
+getScalaI (CheckCast t) = Gen $ ScalaCheckCast.apply (javaClass t)
 

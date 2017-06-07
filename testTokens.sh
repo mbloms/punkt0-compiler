@@ -4,12 +4,12 @@ do
     echo $file;
     dirname=$(dirname $file)
     filename=$(basename $file .p0)
-    scala -cp ./target/scala-2.11/classes:./frege.jar punkt0.Main --tokens $file | diff - $dirname/$filename.check;
+    java -cp ./target/scala-2.11/classes:./frege.jar punkt0.Main --tokens $file | diff - $dirname/$filename.check;
 done;
 for file in ./testprograms/lab2/invalid/*.p0
 do
     echo $file;
-    output=$(scala -cp ./target/scala-2.11/classes:./frege.jar punkt0.Main --tokens $file 2>&1 >/dev/null)
+    output=$(java -cp ./target/scala-2.11/classes:./frege.jar punkt0.Main --tokens $file 2>&1 >/dev/null)
     if [ $? -ne 1 ]
     then
         echo 'Error code not 1';

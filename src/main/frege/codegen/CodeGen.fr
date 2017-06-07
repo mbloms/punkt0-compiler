@@ -6,6 +6,8 @@ import punkt0.analyzer.Analyzer
 import punkt0.Typed
 import Java.Util(LinkedList, List)
 import Data.Traversable(traverse)
+import Data.Bits
+import frege.java.Lang(Short)
 
 genCode :: CodeHandler -> [Instruction] -> IO CodeHandler
 genCode startHandler is = foldM f startHandler is
@@ -35,27 +37,54 @@ declareField className cf (FieldCode{name,t})
     = cf.addField (javaType t) name >> pure cf
 
 genClass :: Maybe String -> Maybe String -> Class -> IO ()
-genClass outDir sourceFile (ClassCode{name,extends,fields,methods})
+genClass outDir sourceFile (ClassCode{name,extends,fields,methods,constructor=ctypes})
     = ClassFile.new name (toOption extends) >>= \cf ->
     foldM (declareField name) cf fields >>= \cf ->
     foldM (genMethod name) cf methods >>= \cf ->
     maybe (pure ()) cf.setSourceFile sourceFile >>= \_ ->
-    cf.addConstructor (ScalaNil.nil) >>= \mm ->
+    constructorTypes >>= \types ->
+    cf.addConstructor types >>= \mm ->
     mm.codeHandler >>= \code ->
     genCode code constructor >>= \_ ->
     code.freeze >>= \_ ->
     cf.writeToFile (dirName ++ name ++ ".class")
     where
+        constructorTypes = maybe (pure ScalaNil.nil) (ScalaList.fromList . fmap javaType) ctypes
         dirName = maybe "" (\dir -> dir ++ "/") outDir
         super = fromMaybe "java/lang/Object" extends
         thisPtr = ALoad 0
         construct = InvokeSpecial super "<init>" (TMethod ([],TUnit))
         constructor = thisPtr : construct : concatMap (compileFieldInit name) fields ++ [Return]
 
+genAbstractMethod :: String -> ClassFile -> AbstractMethod -> IO ClassFile
+genAbstractMethod className cf (AbstractMethod{name,args,returnType})
+    = do
+    types <- ScalaList.fromList (fmap javaType args)
+    cf.addAbstractMethod (javaType returnType) name types
+    pure cf
+
+genAbstractClass :: Maybe String -> Maybe String -> AbstractClass -> IO ()
+genAbstractClass outDir sourceFile (AbstractClass{name,extends,methods})
+    = do
+    cf <- ClassFile.new name (toOption extends)
+    flags <- cf.getFlags
+    cf.setFlags (withAbstract flags)
+    cf <- foldM (genAbstractMethod name) cf methods
+    maybe (pure ()) cf.setSourceFile sourceFile
+    cf.addDefaultConstructor
+    cf.writeToFile (dirName ++ name ++ ".class")
+    where
+        dirName = maybe "" (\dir -> dir ++ "/") outDir
+        abstractClassFlag :: Short
+        abstractClassFlag = fromInt 0x400
+        withAbstract :: Short -> Short
+        withAbstract flags = fromInt $ abstractClassFlag.unsigned .|. flags.unsigned
+
 genProgram :: Maybe String -> Maybe String -> Prog -> IO ()
-genProgram outDir sourceFile (ProgramCode (classes, MainCode{name,body,vars}))
+genProgram outDir sourceFile (ProgramCode (classes, abstractClasses, MainCode{name,body,vars}))
     = createDirectory
     >> traverse (genClass outDir sourceFile) classes
+    >> traverse (genAbstractClass outDir sourceFile) abstractClasses
     >>= \_ -> ClassFile.new name (toOption Nothing)
     >>= \cf -> maybe (pure ()) cf.setSourceFile sourceFile
     >>= \_ -> cf.addDefaultConstructor
@@ -69,54 +98,6 @@ genProgram outDir sourceFile (ProgramCode (classes, MainCode{name,body,vars}))
         createDirectory = maybe (pure True) (\dir -> File.new dir >>= \f -> f.mkdirs) outDir
         dirName = maybe "" (\dir -> dir ++ "/") outDir
 
---testCode = "class A{var x : Int = 3; def foo() : Unit = {println(\"Hello there ☺️\"); println(x)}} object Main extends App {new A().foo()}"
-{-
-testCode = unlines
-    [ "class A{"
-    , "  var x : Int = 3;"
-    , "  def foo() : Unit = {"
-    , "    var y : Int = 42;"
-    , "    var o : A = new A();"
-    , "    if ((true && (2==2) && (1<2) || 1/0 == 1))"
-    , "      {println(x);println(\"block\")}"
-    , "    else"
-    , "      println(5)"
-    , "    ;"
-    , "    println(\"Here\")"
-    , "  }"
-    , "}"
-    , "object Main extends App {"
-    , "  var z : Int = 42;"
-    , "  if (true)"
-    , "    new A().foo()"
-    , "  ;"
-    , "  println(z)"
-    , "}"
-    ]-}
-{-
-testCode = unlines
-    [ "class A{"
-    , "  var x : Int = 3;"
-    , "  def foo() : Unit = {"
-    , "    var y : Int = 42;"
-    , "    var o : A = new A();"
-    , "    println(1==2);"
-    , "    println(1<3);"
-    , "    println(2==2);"
-    , "    println(4<2)"
-    , "  }"
-    , "}"
-    , "object Main extends App {"
-    , "  var z : Int = 42;"
-    , "  if (true)"
-    , "    new A().foo()"
-    , "  ;"
-    , "  println(z)"
-    , "}"
-    ]
--}
--- testCode = "object Main extends App { println(\"Hello, Dear World!\")}"
---testCode = "object Main extends App {println(1+3/2*4)}"
 testCode = "object Main extends App {println(\"Hello\" + 4 + \"ok\" + \"hi\" + 12372 * 4)}"
 main = let
         (Just ast) = parseCode program testCode
