@@ -224,21 +224,9 @@ compileExpression (Typed TBool (BinOp e1 op e2 pos)) = prependPos pos $ case (e1
     (TBool,TBool) -> case op of
         Equals -> compileExpression e1 ++ compileExpression e2 ++ [LineNum pos.line, IXOR]
         And -> compileExpression (Typed TBool
-            (If e1
-                (If e2
-                    (Typed TBool (LitTrue pos))
-                    (Just (Typed TBool (LitFalse pos)))
-                    pos)
-                (Just (Typed TBool (LitFalse pos)))
-                pos))
+            (If e1 e2 (Just (Typed TBool (LitFalse pos))) pos))
         Or -> compileExpression (Typed TBool
-            (If e1
-                (Typed TBool (LitTrue pos))
-                (Just (Typed TBool (If e2
-                    (Typed TBool (LitTrue pos))
-                    (Just (Typed TBool (LitFalse pos)))
-                    pos)))
-            pos))
+            (If e1 (Typed TBool (LitFalse pos)) (Just e2) pos))
     (t1,t2) -> case op of
         Equals -> compileExpression e1 ++ compileExpression e2 ++ [ACompare]
 
