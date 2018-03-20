@@ -1,0 +1,6 @@
+[submodule "report"]
+	path = report
+	url = https://git.overleaf.com/9868508tmdvkgzbpbsb
+[submodule "proposal"]
+	path = proposal
+	url = git@gits-15.sys.kth.se:mbloms/compiler-report.git
