@@ -2,8 +2,6 @@ language: scala
 scala:
 - 2.11.8
 jdk:
-"before_install": [
-    "git submodule deinit"
-],
     - oraclejdk8
+before_install: "git submodule deinit"
 script: ./test.sh
