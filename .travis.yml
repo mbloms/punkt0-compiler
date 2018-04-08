@@ -3,5 +3,6 @@ scala:
 - 2.11.8
 jdk:
     - oraclejdk8
-before_install: "git submodule deinit"
+git:
+  submodules: false
 script: ./test.sh
